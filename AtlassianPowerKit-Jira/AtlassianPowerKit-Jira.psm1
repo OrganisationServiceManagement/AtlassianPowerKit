@@ -15,7 +15,7 @@
                     - Get-JiraIssueChangeNulls -Key $Key
                 - Get-JiraIssueChangeLog -Key $Key
                 - Get-JiraFields
-                - Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $Field_Ref -New_Value $New_Value -FieldType $FieldType
+                - Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $Field_Ref -New_Value $New_Value -FIELD_TYPE $FIELD_TYPE
                 - Set-JiraCustomField -FIELD_NAME $FIELD_NAME -FIELD_TYPE $FIELD_TYPE
             - Project
                 - Get-JiraProjectProperty
@@ -86,6 +86,30 @@ function Convert-JiraIssueToTableRow {
     $TABLE_ROW += '</tr>'
     $TABLE_ROW 
     return $TABLE_ROW
+}
+
+
+function ConvertTo-JSONMarkdownList {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$JSON_DATA_STRING
+    )
+    # Convert JSON to PowerShell Object
+    $data = $JSON_DATA_STRING | ConvertFrom-Json
+
+    # Initialize Markdown content
+    $markdown = ''
+
+    # Iterate over JSON keys and build Markdown
+    foreach ($key in $data.PSObject.Properties.Name) {
+        $markdown += "* *$($key)*:`n" # Add the top-level heading
+        foreach ($item in $data.$key) {
+            $markdown += "** [$item|$item|smart-link] `n" # Add the nested bullet point with a link
+        }
+    }
+    Write-Debug "Markdown: $markdown"
+    # Output Markdown
+    return $markdown
 }
 
 function Export-RestorableJiraBackupJQL {
@@ -342,8 +366,8 @@ function Get-JiraIssueChangeNullsFromJQL {
     }
     # Write formated list of null changes to terminal
     $NULL_CHANGE_ITEMS | ForEach-Object {
-        Write-Debug "$($_.key) - Field: $($_.field) (ID: $($_.fieldId)), Type: $($_.fieldtype) --- Value nulled: $($_.from) [Created: $($_.created) - Author: $($_.author)]'
-            #Write-Debug 'Restore with: Set-JiraIssueField -ISSUE_KEY $($_.key) -Field_Ref $($_.fieldId) -New_Value $($_.from) -FieldType $($_.fieldtype)"
+        Write-Debug "$($_.key) - Field: $($_.field) (ID: $($_.fieldId)), Type: $($_.FIELD_TYPE) --- Value nulled: $($_.from) [Created: $($_.created) - Author: $($_.author)]'
+            #Write-Debug 'Restore with: Set-JiraIssueField -ISSUE_KEY $($_.key) -Field_Ref $($_.fieldId) -New_Value $($_.from) -FIELD_TYPE $($_.fieldtype)"
     }
     $ATTEMPT_RESTORE = Read-Host 'Do you want to attempt to restore the nulled values? Y/N [N]'
     if ($ATTEMPT_RESTORE -eq 'Y') {
@@ -369,7 +393,7 @@ function Get-JiraIssueChangeNullsFromJQL {
                 $TARGET_FIELD = $_.fieldId
             }
 
-            Set-JiraIssueField -ISSUE_KEY $_.key -Field_Ref $TARGET_FIELD -New_Value $New_Value -FieldType $_.fieldtype
+            Set-JiraIssueField -ISSUE_KEY $_.key -Field_Ref $TARGET_FIELD -New_Value $New_Value -FIELD_TYPE $_.fieldtype
             Write-Debug "Updated: $($_.issue) - Field: $($_.field): Value restored: $($_.fromString) --- data_val:[$($_.from)]"
         }
 
@@ -534,7 +558,7 @@ function Get-JiraIssueLinks {
         Write-Error "Error updating field: $($_.Exception.Message)"
     }
     $ISSUE_LINKS_JSON_ARRAY = $ISSUE_LINKS.fields.issuelinks
-    return $ISSUE_LINKS_JSON_ARRAY
+    return $ISSUE_LINKS_JSON_ARRAY | ConvertTo-Json -Depth 60
 }
 
 function Clear-EmptyFields {
@@ -592,10 +616,6 @@ function Get-JiraCloudJQLQueryResult {
         [Parameter(Mandatory = $false)]
         [switch]$ReturnJSONOnly = $false
     )
-    $OSM_TEMP_DIR = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\JIRA\.temp"
-    if (-not (Test-Path $OSM_TEMP_DIR)) {
-        New-Item -ItemType Directory -Path $OSM_TEMP_DIR -Force | Out-Null
-    }
     if (! $ReturnJSONOnly) {
         $OUTPUT_DIR = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\JIRA"
         $OUTPUT_FILE = "$OUTPUT_DIR\JIRA-Query-Results-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
@@ -626,7 +646,7 @@ function Get-JiraCloudJQLQueryResult {
         }
     }
     $POST_BODY.expand = 'names'
-    $POST_BODY.maxResults = 5000
+    $POST_BODY.maxResults = 1000
     if ($RETURN_FIELDS -and $null -ne $RETURN_FIELDS -and $RETURN_FIELDS.Count -gt 0) {
         $POST_BODY.fields = $RETURN_FIELDS
     }
@@ -634,20 +654,17 @@ function Get-JiraCloudJQLQueryResult {
         Write-Debug 'RETURN_FIELDS not provided, using default fields...'
         $POST_BODY.fields = @('*all', '-issuelinks', '-subtasks', '-worklog', '-changelog', '-comment')
     }
-    # sequence for 0 to $VALIDATE_QUERY.total in increments of 100
-    # Set contents of $OUTPUT_FILE '[
-    #'[' | Out-File -FilePath $OUTPUT_FILE
-    # $OUTPUT_FILE_LIST = 0..($DYN_LIMIT / 100) | ForEach-Object -Parallel { 
+    Write-Debug 'Getting JQL results via /rest/api/3/search/jql...'
+    $NEXT_PAGE = $null
+    $COMPLETE = $false
     $ISSUE_ARRAY = @()
+    $PAGE_COUNT = 0
     try {
-        $NEXT_PAGE = $false
         do {
+            $PAGE_COUNT++
             if ($NEXT_PAGE) {
-                Write-Debug "There are more results, getting next page with token: $NEXT_PAGE"
                 $POST_BODY.nextPageToken = $NEXT_PAGE
-                $OUTPUT_FILE = $OUTPUT_FILE.Replace('.json', "-$NEXT_PAGE.json")
             }
-            Write-Debug 'Getting JQL results via /rest/api/3/search/jql...'
             $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/search/jql" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body $($POST_BODY | ConvertTo-Json -Depth 10) -ContentType 'application/json' -StatusCodeVariable 'scv'
             Write-Debug "REST_RESPONSE received: $($REST_RESPONSE.GetType()), StatusCode: $scv"
             #Write-Debug "REST_RESPONSE: $($REST_RESPONSE | ConvertTo-Json -Depth 10)"
@@ -663,9 +680,12 @@ function Get-JiraCloudJQLQueryResult {
                 $COMPLETE = $false
             }
             else {
-                Write-Debug "$($MyInvocation.MyCommand.Name): No more results, adding $($REST_RESPONSE.issues.Count) issues to the results..."
+                $NEXT_PAGE = $null
                 $COMPLETE = $true
             }
+            #$REST_RESPONSE.issues | ForEach-Object {
+            #    Write-Output $_ | ConvertTo-Json -Depth 100 | Out-File -FilePath "$($OUTPUT_FILE)-$($PAGE_COUNT)-stream.json" -Append
+            #}
             $ISSUE_ARRAY += $REST_RESPONSE.issues
             Write-Debug "ISSUE_ARRAY Count: $($ISSUE_ARRAY.Count)"
             Write-Debug "$($MyInvocation.MyCommand.Name): End of loop, Collected Issue count: $($ISSUE_ARRAY.Count)...Completed?: $COMPLETE"
@@ -688,7 +708,7 @@ function Get-JiraCloudJQLQueryResult {
             #$ISSUE | ConvertTo-Json -Depth 100 | Write-Debug
             $FIELDS_ARRAY = $ISSUE.fields
             #Write-Debug "FIELDS ARRAY TYPE IS: $($FIELDS_ARRAY.GetType())'
-            #Write-Debug 'FIELD COUNT FOR ISSUE: $($FIELDS_ARRAY.Count)"
+            #Write-Debug 'FIELD COUNT FOR ISSUE: $($FIELDS_ARRAY.Count)'
             Write-Debug "Cleaning fields for issue: $($ISSUE.key)"
             Write-Debug "FIELDS_ARRAY: $($FIELDS_ARRAY.GetType())"
             Write-Debug "FIELDS_ARRAY Count: $($FIELDS_ARRAY.Count)"
@@ -733,13 +753,16 @@ function Get-JiraCloudJQLQueryResult {
     else {
         $ISSUE_ARRAY | ConvertTo-Json -Depth 100 -Compress | Out-File -FilePath $OUTPUT_FILE
         Write-Debug "JIRA COMBINED Query results written to: $OUTPUT_FILE"
-        $OUTPUT_FILE_LIST | ForEach-Object {
-            Remove-Item -Path $_ -Force
-        }
         #Write-Debug '########## Get-JiraCloudJQLQueryResult completed, OUTPUT_FILE_LIST: '
         #$OUTPUT_FILE_LIST | Write-Debug
         # Combine raw, compressed JSON files into a single JSON file that is valid JSON
-        return $OUTPUT_FILE
+        $RESULT_JSON = @{
+            result      = 'success'
+            issue_count = $ISSUE_ARRAY.Count
+            output_file = $OUTPUT_FILE
+            output_dir  = $OUTPUT_DIR
+        }
+        return $RESULT_JSON | ConvertTo-Json
     }
 }
 
@@ -783,8 +806,8 @@ function Set-JiraIssueField {
     }
     #$FIELD_PAYLOAD = $FIELD_PAYLOAD | ConvertTo-Json -Depth 10
     Write-Debug "### UPDATING ISSUE: https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$ISSUE_KEY"
-    Write-Debug "Field Type: $FieldType"
-    switch -regex ($FieldType) {
+    Write-Debug "Field Type: $FIELD_TYPE"
+    switch -regex ($FIELD_TYPE) {
         'custom' { $FIELD_PAYLOAD = $(Set-MutliSelectPayload) }
         'multi-select' { $FIELD_PAYLOAD = $(Set-MutliSelectPayload) }
         'single-select' { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = @{value = "$New_Value" } } } }
@@ -794,17 +817,16 @@ function Set-JiraIssueField {
     }
     $REQUEST_URL = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/2/issue/$($ISSUE_KEY)" 
     # Run the REST API call to update the field with verbose debug output
-    Write-Debug "Field Payload: $FIELD_PAYLOAD"
+    Write-Debug "Field Payload: $($FIELD_PAYLOAD | ConvertTo-Json -Depth 10)"
     #Write-Debug "Trying: Invoke-RestMethod -Uri $REQUEST_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $FIELD_PAYLOAD -ContentType 'application/json'"
     try {
-        $UPDATE_ISSUE_RESPONSE = Invoke-RestMethod -Uri $REQUEST_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $FIELD_PAYLOAD -ContentType 'application/json'
+        $UPDATE_ISSUE_RESPONSE = Invoke-RestMethod -Uri $REQUEST_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $($FIELD_PAYLOAD | ConvertTo-Json -Depth 30) -ContentType 'application/json'
     }
     catch {
-        Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
-        Write-Error "Error updating field: $($_.Exception.Message)'
-        }
-        Write-Debug '$UPDATE_ISSUE_RESPONSE"
+        $_ | Select-Object -Property * -ExcludeProperty psobject | Out-String | Write-Debug
+        Write-Error "Error updating field: $($_.Exception.Message)"
     }
+    return $UPDATE_ISSUE_RESPONSE
 }
 
 # Function to set-jiraissuefield for a Jira issue field for all issues in JQL query results gibven the JQL query string, field name, and new value
@@ -831,12 +853,70 @@ function Set-JiraIssueFieldForJQLQueryResults {
         $ISSUE_SUMMARY = $ISSUE.fields.summary
         Write-Debug "Updating fields for issue: $($_.key - $ISSUE_SUMMARY)"
         if (! $DryRun) {
-            Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FieldType $FIELD_TYPE
+            Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FIELD_TYPE $FIELD_TYPE
         }
         else {
             Write-Debug "Dry Run: Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE"
         }
     }
+}
+
+function Set-OSMRelationFieldBulkSQL {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$JQL_STRING,
+        [Parameter(Mandatory = $true)]
+        [string]$FieldRef
+    )
+    
+    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -ReturnJSONOnly -RETURN_FIELDS @('key', 'summary')
+    $ISSUES = $ISSUES | ConvertFrom-Json
+    $ISSUES | ForEach-Object {
+        $ISSUE_KEY = $_.key
+        $ISSUE_SUMMARY = $_.fields.summary
+        Write-Debug "Updating fields for issue: $ISSUE_KEY - $ISSUE_SUMMARY"
+        Set-OSMRelationFieldIssueKey -IssueKey $ISSUE_KEY -FieldRef $FieldRef
+    }
+}
+
+function Set-OSMRelationFieldIssueKey {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$IssueKey,
+        [Parameter(Mandatory = $true)]
+        [string]$FieldRef
+    )
+    $textInfo = (Get-Culture).TextInfo
+    $LINKED_ISSUES_HASHTABLE = @{}
+    $ISSUE_LINKS = Get-JiraIssueLinks -IssueKey $IssueKey
+    # For each link type, create a nested list of linked issues
+    $ISSUE_LINKS | ConvertFrom-Json | ForEach-Object {
+        # if the $_ contains an inwardIssue, the linked issue is the inwardIssue, otherwise it is the outwardIssue
+        if ($_.inwardIssue) {
+            $LINK_TYPE_NAME = $_.type.inward
+            $LINKED_ISSUE = $_.inwardIssue.key
+        }
+        else {
+            $LINK_TYPE_NAME = $_.type.outward
+            $LINKED_ISSUE = $_.outwardIssue.key
+        }
+        $LINK_TYPE_NAME = $textInfo.ToTitleCase($LINK_TYPE_NAME.ToLower())
+        Write-Debug "Link Type: $LINK_TYPE_NAME, Linked Issue: $LINKED_ISSUE"
+        if ($LINKED_ISSUES_HASHTABLE.ContainsKey($LINK_TYPE_NAME)) {
+            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] += @("https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$LINKED_ISSUE")
+        }
+        else {
+            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] = @("https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$LINKED_ISSUE")
+        }
+    }
+    # Output the linked issues hashtable sorted by link type and convert to JSON
+    $JSON_STRING = $LINKED_ISSUES_HASHTABLE | ConvertTo-Json -Depth 10
+    Write-Debug "JSON_STRING: $JSON_STRING"
+    $MARKDOWN_TEXT = ConvertTo-JSONMarkdownList -JSON_DATA_STRING $JSON_STRING
+    Write-Debug "MARKDOWN_TEXT: $MARKDOWN_TEXT"
+    #$MARKDOWN_TEXT | Write-Debug
+    $UPDATE_RESPONSE = Set-JiraIssueField -ISSUE_KEY $IssueKey -Field_Ref $FieldRef -New_Value $MARKDOWN_TEXT -FIELD_TYPE 'text'
+    return $UPDATE_RESPONSE
 }
 
 # function to get changes from a Jira issue change log that are from a value to null
@@ -891,14 +971,14 @@ function Get-JiraIssueChangeNulls {
             $_ | Add-Member -MemberType NoteProperty -Name 'author' -Value $MAMMA.author.emailAddress
             #Write-Debug $_ | Select-Object -Property * -ExcludeProperty psobject
             $FINAL_ITEMS += $_
-            # $fieldType = ''
+            # $FIELD_TYPE = ''
             # $fieldRef = ''
             # switch -regex ($_.field) {
-            #     'Service Categories' { $fieldType = 'multi-select'; $fieldRef = 'customfield_10316' }
-            #     'Sensitivity Classification' { $fieldType = 'single-select'; $fieldRef = 'customfield_10275' }
-            #     Default { $fieldType = 'text' }
+            #     'Service Categories' { $FIELD_TYPE = 'multi-select'; $fieldRef = 'customfield_10316' }
+            #     'Sensitivity Classification' { $FIELD_TYPE = 'single-select'; $fieldRef = 'customfield_10275' }
+            #     Default { $FIELD_TYPE = 'text' }
             # }
-            # Write-Debug "Set-JiraIssueField -ISSUE_KEY $($_.key) -Field_Ref $fieldRef -New_Value $($_.fromString) -FieldType $fieldType"
+            # Write-Debug "Set-JiraIssueField -ISSUE_KEY $($_.key) -Field_Ref $fieldRef -New_Value $($_.fromString) -FIELD_TYPE $FIELD_TYPE"
         }
     }
     $FINAL_ITEMS

@@ -1,14 +1,13 @@
 # Run.ps1
 
-# Set the environment variable if needed
-$env:OSM_HOME = '/mnt/osm'
-$env:OSM_INSTALL = '/opt/osm'
-
 # Import necessary modules
 Import-Module -Name Microsoft.PowerShell.SecretManagement, Microsoft.PowerShell.SecretStore -Force
 Set-Location "$env:OSM_INSTALL/AtlassianPowerKit"
 Import-Module "$env:OSM_INSTALL/AtlassianPowerKit/AtlassianPowerKit.psd1" -Force
 $env:SECRETSTORE_PATH = $env:OSM_HOME
+
+# Load Environment Variables from the host
+
 
 # Check if arguments were passed to the script
 if ($args.Count -gt 0) {

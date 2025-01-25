@@ -1,13 +1,10 @@
-$ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 <#
 .SYNOPSIS
-    Atlassian Cloud PowerKit module for interacting with Atlassian Cloud REST API.
+    Atlassian Cloud PowerKit module for interacting with Atlassian Cloud REST APIs and other handy functions relating to the OSM project.
+
 .DESCRIPTION
-    Atlassian Cloud PowerKit module for interacting with Atlassian Cloud REST API.
-    - Dependencies: AtlassianPowerKit-Shared
-    - Functions:
-      - Use-AtlassianPowerKit: Interactive function to run any function in the module.
-    - Debug output is enabled by default. To disable, set $DisableDebug = $true before running functions.
+    See the [wiki](https://github.com/OrganisationServiceManagement/AtlassianPowerKit/wiki) for more information on how to use this module.
+
 .EXAMPLE
     Use-AtlassianPowerKit
     This example lists all functions in the AtlassianPowerKit module.
@@ -18,9 +15,10 @@ $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
     Get-DefinedPowerKitVariables
     This example lists all variables defined in the AtlassianPowerKit module.
 .LINK
-    GitHub:
+    GitHub: https://github.com/OrganisationServiceManagement/AtlassianPowerKit
 
 #>
+$ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 function Get-RequisitePowerKitModules {
     $AtlassianPowerKitRequiredModules = @('PowerShellGet', 'Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
     $AtlassianPowerKitRequiredModules | ForEach-Object {
@@ -44,11 +42,11 @@ function Get-RequisitePowerKitModules {
 function Import-NestedModules {
     param (
         [Parameter(Mandatory = $true)]
-        [string[]] $NESTED_MODULES
+        [string[]]$NESTED_MODULES
     )
     $NESTED_MODULES | ForEach-Object {
         $MODULE_NAME = $_
-        Write-Debug "Importing nested module: $MODULE_NAME"
+        #Write-Debug "Importing nested module: $MODULE_NAME"
         #Find-Module psd1 file in the subdirectory and import it
         $PSD1_FILE = Get-ChildItem -Path ".\$MODULE_NAME" -Filter "$MODULE_NAME.psd1" -Recurse -ErrorAction SilentlyContinue
         if (-not $PSD1_FILE) {
@@ -60,7 +58,7 @@ function Import-NestedModules {
             throw "Multiple module files found for $MODULE_NAME. Exiting."
         }
         Import-Module $PSD1_FILE.FullName -Force
-        Write-Debug "Importing nested module: $PSD1_FILE,  -- $($PSD1_FILE.BaseName)"
+        Write-Debug "Imported nested module: $PSD1_FILE,  -- $($PSD1_FILE.BaseName)"
         #Write-Debug "Importing nested module: .\$($_.BaseName)\$($_.Name)"
         # Validate the module is imported
         if (-not (Get-Module -Name $MODULE_NAME)) {
@@ -70,47 +68,51 @@ function Import-NestedModules {
     }
     return $NESTED_MODULES
 }
-
-function Test-OSMHomeDir {
-    # If the OSM_HOME environment variable is not set, set it to the current directory.
-    if (-not $env:OSM_HOME) {
-        Write-Debug "Setting OSM_HOME to $new_home"
-        $new_home = $(Get-Item $pwd).FullName | Split-Path -Parent
-        $env:OSM_HOME = $new_home
-    }
-    # Check the OSM_HOME environment variable directory exists
-    if (-not (Test-Path $env:OSM_HOME)) {
-        Write-Warning "OSM_HOME directory not found: $env:OSM_HOME"
-        Write-Warning "Changing OSM_HOME to $new_home"
-        $env:OSM_HOME = $new_home
-    }
-    $ValidatedOSMHome = (Get-Item $env:OSM_HOME).FullName
-    if (-not $env:OSM_INSTALL) {
-        # if linux, set the default OSM_INSTALL path to /opt/osm
-        if ($IsLinux) {
-            $env:OSM_INSTALL = '/opt/osm'
+# Create OSM dirs
+$OSM_DIRS = @('OSM_HOME', 'OSM_INSTALL')
+function Confirm-OSMDirs {
+    $VALIDATED_DIRS = $OSM_DIRS | ForEach-Object {
+        # Check if $env: variable exists
+        $ENVAR_NAME = 'env:' + $_
+        if (-not (Get-Item -Path $ENVAR_NAME -ErrorAction SilentlyContinue)) {
+            if ($IsLinux) {
+                $DIR_PATH = '/opt/osm'
+            } 
+            else {
+                $DIR_PATH = $(Get-ItemProperty -Path .).FullName
+            }
+            $SetEnvar = '$' + $ENVAR_NAME + ' = "' + $DIR_PATH + '"'
+            Invoke-Expression -Command $SetEnvar | Write-Debug
+            #Write-Debug "Envar set: $SetEnvar"
+        }
+        # Get the path from the $env: variable and create the directory if it does not exist
+        $EXISING_ENVAR = Get-Item -Path $ENVAR_NAME
+        $EXPECTED_DIR = $EXISING_ENVAR.Value
+        if (-not (Test-Path $EXPECTED_DIR)) {
+            New-Item -ItemType Directory -Path $EXPECTED_DIR -Force | Write-Debug
+            #Write-Debug "Directory created: $EXPECTED_DIR"
         }
         else {
-            $env:OSM_INSTALL = $(Get-ItemProperty -Path ..\).FullName
+            #Write-Debug "Good news, $ENVAR_NAME already set and directory already exists: $EXPECTED_DIR"
         }
-        
+        $ENVAR_NAME
     }
-    return $ValidatedOSMHome
+    return $VALIDATED_DIRS
 }
 
 function Invoke-AtlassianPowerKitFunction {
     param (
         [Parameter(Mandatory = $true)]
-        [string] $FunctionName,
+        [string]$FunctionName,
         [Parameter(Mandatory = $false)]
-        [hashtable] $FunctionParameters
+        [hashtable]$FunctionParameters
     )
     $TEMP_DIR = "$env:OSM_HOME\$env:AtlassianPowerKit_PROFILE_NAME\.temp"
     if (-not (Test-Path $TEMP_DIR)) {
-        New-Item -ItemType Directory -Path $TEMP_DIR -Force | Out-Null
+        New-Item -ItemType Directory -Path $TEMP_DIR -Force | Write-Debug
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $stopwatch.Start() | Out-Null
+    $stopwatch.Start() | Write-Debug
 
     try {
         if ($FunctionParameters) {
@@ -146,11 +148,55 @@ function Invoke-AtlassianPowerKitFunction {
 function Show-AdminFunctions {
     param (
         [Parameter(Mandatory = $false)]
-        [string[]] $AdminModules = @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-UsersAndGroups')
+        [string[]]$AdminModules = @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-UsersAndGroups')
     )
     # Clear current screen
     Clear-Host
     Show-AtlassianPowerKitFunctions -NESTED_MODULES $AdminModules
+}
+
+function Update-OSMPKFunctionsMarkDownDoc {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$NESTED_MODULES
+    )
+    # Creates or updates a markdown document with all functions in the module, their descriptions, and parameters
+    $MARKDOWN_FILE = "$env:OSM_HOME\AtlassianPowerKit\AtlassianPowerKit-Functions.md"
+    if (-not (Test-Path $MARKDOWN_FILE)) {
+        New-Item -ItemType File -Path $MARKDOWN_FILE -Force | Write-Debug
+    }
+    else {
+        Clear-Content -Path $MARKDOWN_FILE | Write-Debug
+    }
+    $NESTED_MODULES | ForEach-Object {
+        $MODULE_NAME = $_
+        Write-Output "# Module: $MODULE_NAME" | Out-File -FilePath $MARKDOWN_FILE -Append
+        Write-Debug "Updating markdown document for module: $MODULE_NAME"
+        $MODULE_FUNCTIONS = (Get-Module -Name $MODULE_NAME -All).ExportedFunctions.Keys
+        $MODULE_FUNCTIONS | ForEach-Object {
+            $FUNCTION_NAME = $_
+            $FUNCTION_PARAMS = $FUNCTION_NAME.Parameters 
+            Write-Output "## Function: $FUNCTION_NAME" | Out-File -FilePath $MARKDOWN_FILE -Append
+            Write-Output '### Params' | Out-File -FilePath $MARKDOWN_FILE -Append
+            foreach ($PARAM in $FUNCTION_PARAMS) {
+                $PARAM_DETAILS = $FUNCTION_PARAMS[$PARAM]
+                $PARAM_NAME = $PARAM
+                $PARAM_TYPE = $PARAM_DETAILS.ParameterType.Name
+                $PARAM_MANDATORY = $PARAM_DETAILS.IsMandatory
+                $PARAM_DEFAULT = $PARAM_DETAILS.DefaultValue
+                $PARAM_DETAILS = "    - **$PARAM_NAME** ($PARAM_TYPE)"
+                if ($PARAM_MANDATORY) {
+                    $PARAM_DETAILS += ' - Mandatory'
+                }
+                if ($PARAM_DEFAULT) {
+                    $PARAM_DETAILS += " - Default: $PARAM_DEFAULT"
+                }
+                Write-Output $PARAM_DETAILS | Out-File -FilePath $MARKDOWN_FILE -Append
+            }
+            $FUNCTION_DETAILS | Out-File -FilePath $MARKDOWN_FILE -Append
+        }
+    }
+    return $MARKDOWN_FILE
 }
 
 # Function display console interface to run any function in the module
@@ -227,88 +273,104 @@ function Show-AtlassianPowerKitFunctions {
             Write-Error "Function $selectedFunction does not exist in the function references."
         }
     }
-    # if selected function is Return, exit the function
-    if (!$SelectedFunctionName -or ($SelectedFunctionName -eq 0 -or $SelectedFunctionName -eq 'Return')) {
-        Write-Debug 'No function selected. Exiting'
-        return $null
-    }
     if ($SelectedFunctionName -eq 'A') {
         Show-AdminFunctions
+    }
+    # if selected function is Return, exit the function
+    elseif (!$SelectedFunctionName -or ($SelectedFunctionName -eq 0 -or $SelectedFunctionName -eq 'Return')) {
+        #Write-Debug 'No function selected. Exiting'
+        return $null
     }
     # Run the selected function timing the execution
     Write-Host "`n"
     Write-Host "Invoking AtlassingPowerKit Function:  $SelectedFunctionName" -ForegroundColor Green
     return $SelectedFunctionName
 }
+function New-AtlassianPowerKitProfile {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$PROFILE_NAME = $null
+    )
+    if (!$PROFILE_NAME) {
+        $PROFILE_NAME = Read-Host -Prompt 'Enter a name for the new profile'
+    }
+    $PROFILE_NAME = $PROFILE_NAME.Trim().ToLower()
+    $API_ENDPOINT = Read-Host -Prompt 'Enter the Atlassian API endpoint (e.g. https://your-domain.atlassian.net)'
+    $API_CREDPAIR = Get-Credential -Message 'Enter your Atlassian API credentials (email and API token)'
+    $REGISTERED_PROFILE = Register-AtlassianPowerKitProfileInVault -ProfileName $PROFILE_NAME -AtlassianAPIEndpoint $API_ENDPOINT -AtlassianAPICredentialPair $API_CREDPAIR
+    $ENVAR_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $REGISTERED_PROFILE
+    return $ENVAR_ARRAY
 
+}
 # Function to list availble profiles with number references for interactive selection or 'N' to create a new profile
-function Show-AtlassianPowerKitProfileList {
-    #Get-AtlassianPowerKitProfileList
-    $PROFILE_LIST = Get-AtlassianPowerKitProfileList
-    $profileIndex = 0
-    if (!$PROFILE_LIST) {
-        Write-Host 'Please create a new profile.'
-        $REGISTERED_PROFILE = New-AtlassianPowerKitProfile
-        return $REGISTERED_PROFILE
-        #Write-Debug "Profile List: $(Get-AtlassianPowerKitProfileList)"
-        #Show-AtlassianPowerKitProfileList
-    } 
-    else {
-        #Write-Debug "Profile list: $env:AtlassianPowerKit_PROFILE_LIST_STRING"
-        Write-Debug "Profile list string $PROFILE_LIST"
-        $PROFILE_LIST.split() | ForEach-Object {
-            Write-Host "[$profileIndex] $_"
-            $profileIndex++
+function Import-AtlassianPowerKitProfile {
+    param (
+        [Parameter(Mandatory = $false)]
+        [switch]$NoVault = $false,
+        [Parameter(Mandatory = $false)]
+        [string]$selectedProfile = $false
+    )
+    if ($NoVault) {
+        #Write-Debug "$($MyInvocation.InvocationName) -NoVault flag set, attempting to load profile from environment variables"
+        $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -NoVault
+    }
+    elseif ($selectedProfile -ne $false) {
+        #Write-Debug "$($MyInvocation.InvocationName) -ProfileName profided, attempting to load profile: $selectedProfile from the vault"
+        $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -ProfileName $selectedProfile
+        if (!$ENVAR_ARRAY -or $ENVAR_ARRAY.Count -lt 3) {
+            Write-Host "Could not load profile: $selectedProfile from the vault. Requesting values to add it to vault."
+            $ENVAR_ARRAY = New-AtlassianPowerKitProfile -PROFILE_NAME $selectedProfile
         }
-    }   
-    Write-Host '[N] Create a new profile'
-    Write-Host '[D] Delete a profile'
-    Write-Host '[A] Admin (danger) functions'
-    Write-Host '[Q / Return] Quit'
-    Write-Host '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++' -ForegroundColor DarkGray
-    try {
-        # read input from the user and just break with no error if the input is not a number, 'N', 'R' or 'Q'
-        $selectedProfile = Read-Host 'Select a profile number or action'
-    }
-    catch {
-        return $null
-    }
-    if ((!$selectedProfile) -or ($selectedProfile -eq 'Q')) {
-        return $null
-    }
-    elseif ($selectedProfile -eq 'N') {
-        New-AtlassianPowerKitProfile
-    } 
-    elseif ($selectedProfile -eq 'A') {
-        Show-AdminFunctions
-    }
-    elseif ($selectedProfile -eq 'D') {
-        Remove-AtlasianPowerKitProfile
     }
     else {
-        $selectedProfile = [int]$selectedProfile
-        $SELECTED_PROFILE_NAME = $PROFILE_LIST[$selectedProfile]
-        # Write-Debug "Selected profile index: $selectedProfile"
-        # Write-Debug "Selected profile name: $($PROFILE_LIST[$selectedProfile])"
-        #$LOADED_PROFILENAME = Set-AtlassianPowerKitProfile -SelectedProfileName $($PROFILE_LIST[$selectedProfile])
-        return $SELECTED_PROFILE_NAME
+        #Write-Debug "$($MyInvocation.InvocationName) -NoVault flag not set and no profile selected, checking for existing profiles in the vault"
+        $VAULT_PROFILES = Get-AtlassianPowerKitProfileList
+        if ($VAULT_PROFILES) {
+            if ($VAULT_PROFILES.Count -eq 1) {
+                $selectedProfile = $VAULT_PROFILES[0]
+                Write-Debug "Only one profile found in the vault, selecting $selectedProfile"
+                $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -ProfileName $selectedProfile
+            }
+            else {
+                Write-Output 'Multiple profiles found in the vault but no profile provided, please use the -APK_Profile parameter to specify the desired profile'
+                foreach ($APK_PROFILENAME in $VAULT_PROFILES) {
+                    Write-Output "      AtlassianPowerkit -APK_PROFILENAME $APK_PROFILENAME"
+                }
+                Throw 'Ambiguous profile state'
+            }
+        }
+        else {
+            Write-Output 'No profiles found in the vault, please create a new profile.'
+            $ENVAR_ARRAY = New-AtlassianPowerKitProfile
+        }
     }
+    return $ENVAR_ARRAY
 }
 
 function AtlassianPowerKit {
     param (
         [Parameter(Mandatory = $false)]
-        [string] $Profile,
+        [string]$APK_Profile,
         [Parameter(Mandatory = $false)]
-        [switch] $ArchiveProfileDirs,
+        [switch]$ArchiveProfileDirs,
         [Parameter(Mandatory = $false)]
-        [switch] $ResetVault,
+        [switch]$ResetVault,
         [Parameter(Mandatory = $false)]
-        [string] $FunctionName,
+        [string]$FunctionName,
         [Parameter(Mandatory = $false)]
-        [hashtable] $FunctionParameters,
+        [hashtable]$FunctionParameters,
         [Parameter(Mandatory = $false)]
-        [switch] $ClearProfile
+        [switch]$ClearProfile,
+        [Parameter(Mandatory = $false)]
+        [switch]$ListProfiles,
+        [Parameter(Mandatory = $false)]
+        [switch]$NoVault = $false,
+        [Parameter(Mandatory = $false)]
+        [string]$RemoveVaultProfile = $false,
+        [Parameter(Mandatory = $false)]
+        [switch]$NewVaultProfile = $false,
+        [Parameter(Mandatory = $false)]
+        [switch]$DocFunctions = $false
     )
     if (!$env:AtlassianPowerKit_RequisiteModules) {
         $env:AtlassianPowerKit_RequisiteModules = Get-RequisitePowerKitModules
@@ -318,64 +380,99 @@ function AtlassianPowerKit {
     try {
         #Push-Location -Path $PSScriptRoot -ErrorAction Continue
         Write-Debug "Starting AtlassianPowerKit, running from $((Get-Item -Path $PSScriptRoot).FullName)"
-        Write-Debug "OSM_HOME: $(Test-OSMHomeDir)"
+        #Write-Debug 'OSM Directories: '
+        foreach ($OSM_DIR in Confirm-OSMDirs) {
+            Get-Item -Path "$OSM_DIR" | Write-Debug
+        }
         # If current directory is not the script root, push the script root to the stack
         if ($ResetVault) {
-            Clear-AtlassianPowerKitVault | Out-Null
+            Write-Debug '-ResetVault flagged Clearing the AtlassianPowerKit vault, ignoring any other parameters'
+            Clear-AtlassianPowerKitVault | Write-Debug
             return $true
         }
-        if ($ArchiveProfileDirs) {
-            Clear-AtlassianPowerKitProfileDirs | Out-Null
+        elseif ($ListProfiles) {
+            Write-Debug '$ListProfiles flaged, Listing AtlassianPowerKit profiles, ignoring any other parameters'
+            $PROFILE_LIST = Get-AtlassianPowerKitProfileList
+            return $PROFILE_LIST
+        }
+        elseif ($ArchiveProfileDirs) {
+            Write-Debug '-ArchiveProfileDirs flagged, Clearing the AtlassianPowerKit profile directories, ignoring any other parameters'
+            Clear-AtlassianPowerKitProfileDirs | Write-Debug
             return $true
         }
-        if ($ClearProfile) {
-            Clear-AtlassianPowerKitProfile | Out-Null
+        elseif ($ClearProfile) {
+            Write-Debug '-ClearProfile flagged, Clearing the AtlassianPowerKit profile, ignoring any other parameters'
+            Clear-AtlassianPowerKitProfile | Write-Debug
             return $true
         }
-        # If no profile name is provided, list the available profiles
-        $ProfileName = $null
-        if ($Profile) {
-            $ProfileName = $Profile.Trim().ToLower()
+        elseif ($RemoveVaultProfile -ne $false) {
+            Write-Debug '-RemoveVaultProfile flagged, Removing the AtlassianPowerKit profile from the vault, ignoring any other parameters'
+            Remove-AtlassianPowerKitProfile -ProfileName $RemoveVaultProfile | Write-Debug
+            return $true
         }
-        if (!$ProfileName) {
-            $ProfileName = Show-AtlassianPowerKitProfileList
+        elseif ($DocFunctions) {
+            Write-Debug '-DocFunctions flagged, Creating a markdown document of all AtlassianPowerKit functions, ignoring any other parameters'
+            Update-OSMPKFunctionsMarkDownDoc -NESTED_MODULES $NESTED_MODULES
+            return $true
         }
-        $CURRENT_PROFILE = Set-AtlassianPowerKitProfile -SelectedProfileName $ProfileName
-        Write-Debug "Profile set to: $CURRENT_PROFILE"
+        elseif ($NewVaultProfile) {
+            Write-Debug '-NewVaultProfile flagged, Creating a new AtlassianPowerKit profile in the vault, ignoring any other parameters'
+            New-AtlassianPowerKitProfile | Write-Debug
+            return $true
+        }
+        elseif ($NoVault) {
+            Write-Debug '-NoVault flagged, attempting to load profile from environment variables'
+            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -NoVault 
+        }
+        elseif ($APK_Profile) {
+            Write-Debug "Profile provided: $APK_Profile"
+            $ProfileName = $APK_Profile.Trim().ToLower()
+            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $ProfileName
+        }
+        else {
+            Write-Debug 'No profile provided, checking if vault has only 1 profile'
+            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile
+        }
+        Write-Debug "Profile set to: $env:AtlassianPowerKit_PROFILE_NAME"
+        $PROFILE_ARRAY | ForEach-Object {
+            Write-Output "   $_" | Out-Null
+        }
         if (!$FunctionName) {
             $FunctionName = Show-AtlassianPowerKitFunctions -NESTED_MODULES $NESTED_MODULES
         }
-        # If function parameters are provided, splat them to the function
-        Write-Debug "AtlassianPowerKit Main - Running function: $FunctionName, with profile: $CURRENT_PROFILE"
+        #Write-Debug "Function selected: $FunctionName"
         if ($FunctionParameters) {
-            Write-Debug '   Parameters provided to the function via hashtable:'
+            Write-Debug '-FunctionParameters provided !'
+            if ($FunctionParameters.GetType() -ne [hashtable]) {
+                Write-Debug '-FunctionParameters must be a hashtable, e.g.:' 
+                Write-Debug '    @{ key1 = "value1"; key2 = "value2" }'
+                throw 'Function parameters must be a hashtable. Exiting.'
+            }
             # Iterate through the hashtable and display the key value pairs as "-key value"
             $FunctionParameters.GetEnumerator() | ForEach-Object {
                 Write-Debug "       -$($_.Key) $_.Value"
             }
-            $RETURN_JSON = $(Invoke-AtlassianPowerKitFunction -FunctionName $FunctionName -FunctionParameters $FunctionParameters)
+            $RET_VAL = Invoke-AtlassianPowerKitFunction -FunctionName $FunctionName -FunctionParameters $FunctionParameters
             Write-Debug "AtlassianPowerKit Main: Received JSON of size: $($RETURN_JSON.Length) characters"
         }
         elseif ($FunctionName) {
-            Write-Debug "AtlassianPowerKit Main: No parameters provided to the function, attempting to run the function without parameters: $FunctionName"
-            $RETURN_JSON = $(Invoke-AtlassianPowerKitFunction -FunctionName $FunctionName)
-            Write-Debug "AtlassianPowerKit Main: Received JSON of size: $($RETURN_JSON.Length) characters"
+            Write-Debug "$($MyInvocation.InvocationName) attempting to run function: $FunctionName without parameters - most functions will handle this by requesting user input"
+            $RET_VAL = Invoke-AtlassianPowerKitFunction -FunctionName $FunctionName
+
         }
     }
     catch {
         # Write call stack and sub-function error messages to the debug output
-        Write-Debug '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ AtlassianPowerKit Main: '
+        Write-Debug "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ $((Get-Item -Path $PSScriptRoot).FullName) $($MyInvocation.InvocationName) FAILED: "
         # Write full call stack to the debug output and error message to the console
         Get-PSCallStack
-        Write-Debug '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ AtlassianPowerKit Main: '
+        Write-Debug "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ $((Get-Item -Path $PSScriptRoot).FullName) $($MyInvocation.InvocationName)"
         Write-Error $_.Exception.Message
     }
-    # finally {
-    #     #Clear-AtlassianPowerKitProfile
-    #     #Pop-Location
-    #     #Remove-Item 'env:AtlassianPowerKit_*' -ErrorAction Continue
-    #     #Write-Debug 'Gracefully exited AtlassianPowerKit'
-    # }
-    $RETURN_JSON | ConvertFrom-Json -Depth 100 | ConvertTo-Json -Depth 100 -Compress | Write-Debug
-    $RETURN_JSON
+    if (!$RET_VAL) {
+        Write-Output 'Nothing to return, have a nice day.'
+    }
+    else {      
+        return $RET_VAL
+    }
 }
