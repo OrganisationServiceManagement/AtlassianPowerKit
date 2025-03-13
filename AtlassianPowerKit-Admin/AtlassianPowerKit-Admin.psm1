@@ -52,8 +52,7 @@ function New-JiraIssueType {
             Write-Warn "Multiple issue types found with the name: $JiraIssueTypeName. Returning the first issue type."
             $ExistingJiraIssueType = $ExistingJiraIssueType[0]
         }
-    }
-    else {
+    } else {
         # Create a JSON object for the new issue type using the $JiraIssueType fields: name, description, hierarchyLevel, avatarId (removing the other fields)
         $NewJiraIssueType = @{
             name           = $JiraIssueTypeName
@@ -74,6 +73,15 @@ function New-JiraIssueType {
         $ExistingJiraIssueType = $CreatedJiraIssueType
     }
     Return $ExistingJiraIssueType | ConvertTo-Json -Depth 100 -Compress
+}
+
+function Set-OrgAdminUser {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ORG_ADMIN_USER
+    )
+    $ATLASSIAN_ADMIN_API = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/user?username=$ORG_ADMIN_USER"
+
 }
 
 
@@ -101,13 +109,13 @@ function Test-ExistingConfigJSON {
     $CONFIG_FILE = Get-ChildItem -Path $CONFIG_FILE_PATHPATTERN | Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-12) }
     if ($CONFIG_FILE) {
         $CONFIG_FILE
-    }
-    else {
+    } else {
         $null
     }
 }
 # Returns JSON path that can be loaded with Get-Content $(Import-JSONConfigExport) | ConvertFrom-Json -AsHashtable -NoEnumerate
 function Import-JSONConfigExport {
+    
     $FULL_CONFIG_OUTPUT_JSONFILE = $null
     # Advise user of the age of the existing JSON export and ask if they want to use it defaulting to 'Yes'
     while (! $FULL_CONFIG_OUTPUT_JSONFILE) {
@@ -119,8 +127,7 @@ function Import-JSONConfigExport {
                 Write-Debug "Fresh, existing JSON export: $($LATEST_EXISTING_JSON_EXPORT.FullName)"
                 $FULL_CONFIG_OUTPUT_JSONFILE = $LATEST_EXISTING_JSON_EXPORT.FullName
             }
-        }
-        else {
+        } else {
             Write-Debug "$($MyInvocation.MyCommand.Name): Creating new FULL DEPLOYMENT CONFIG json file using: Get-OSMDeploymentConfigsJIRA -PROFILE_NAME $PROFILE_NAME"
             $RAW_CONFIG_JSON = Get-OSMDeploymentConfigsJIRA -PROFILE_NAME $PROFILE_NAME  | ConvertFrom-Json -Depth 100
             $FULL_CONFIG_OUTPUT_JSONFILE = "$OUTPUT_PATH\FULL-$PROFILE_NAME-$(Get-Date -Format 'yyyyMMdd-HHmm').json"
@@ -159,8 +166,7 @@ function Get-OSMConfigAsMarkdown {
             $PROJECT_ISSUE_TYPES | ForEach-Object {
                 if ($_ -ne $null -and $null -ne $_.Name -and $null -ne $_.self) {
                     Write-Output "- [$($_.Name)]($($_.self)) - [Show All Instances](https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/jira/servicedesk/projects/$PROJECT_KEY/issues/?jql=project%20%3D%20$PROJECT_KEY%20AND%20issuetype%20%3D%20%22$($_.name.replace(' ','%20'))%22)"
-                }
-                else {
+                } else {
                     Write-Output '- Invalid or missing issue type'
                 }
             }
@@ -169,8 +175,7 @@ function Get-OSMConfigAsMarkdown {
             $PROJECT_REQUEST_TYPES | ForEach-Object {
                 if ($_ -ne $null -and $null -ne $_.Name -and $null -ne $_.self) {
                     Write-Output "- [$($_.Name)]($($_.self)) - [Show All Instances](https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint).atlassian.net/jira/servicedesk/projects/$PROJECT_KEY/issues/?jql=project%20%3D%20$PROJECT_KEY%20AND%20issuetype%20%3D%20%22$($_.name.replace(' ','%20'))%22)"
-                }
-                else {
+                } else {
                     Write-Output '- Invalid or missing request type'
                 }
             }
@@ -193,8 +198,39 @@ function Get-OSMConfigAsMarkdown {
     Return $JSON_RETURN | ConvertTo-Json -Depth 100 -Compress
 }
 
+function Export-ProjectProformaFormTemplates {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PROJECT_KEY,
+        [Parameter(Mandatory = $false)]
+        [string]$OUTPUT_PATH = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\JIRA"
+    )
+    Import-Module "$env:OSM_INSTALL\AtlassianPowerKit\AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psd1" -Force | Out-Null
+    $TIME_STAMP = Get-Date -Format 'yyyyMMdd-HHmm'
+    $PROFILE_NAME = $env:AtlassianPowerKit_PROFILE_NAME
+    $FORMLIST_FILE = "$OUTPUT_PATH\$PROFILE_NAME-$PROJECT_KEY-ProformaFormList-$TIME_STAMP.json"
+    # Get List of Forms for the project
+    $FORMS_ALL = Get-FormsForJiraProject -PROJECT_KEY $PROJECT_KEY
+    $FORM_LIST = $FORMS_ALL | ConvertFrom-Json | Where-Object { $_.name -notcontains 'z_Archive' }
+    $FORM_LIST | ConvertTo-Json -Depth 100 | Out-File -FilePath $FORMLIST_FILE -Force | Out-Null
+    $FORM_LIST | ForEach-Object {
+        $FORM_ID = $_.id
+        $FORM_NAME = $_.name
+        Write-Debug "======================= Processing Form: $FORM_NAME"
+        $FORM_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/proforma/1.0/form/$FORM_ID/schema"
+        $REST_RESULTS = Invoke-RestMethod -Uri $FORM_ENDPOINT -Method Get -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders)
+        $REST_RESULTS | ConvertTo-Json -Depth 100 | Write-Debug
+        exit
+        $FORM_TEMPLATE | ConvertTo-Json -Depth 100 | Out-File -FilePath "$OUTPUT_PATH\$PROFILE_NAME-$PROJECT_KEY-$FORM_NAME-FormTemplate-$(Get-Date -Format 'yyyyMMdd-HHmm').json" -Force
+    }
+    
+    $PROFORMA_API_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/proforma/1.0"
+    Return $OUTPUT_FILE
+
+}
+
 # Function Get Deployment
-Function Get-OSMDeploymentConfigsJIRA {
+function Get-OSMDeploymentConfigsJIRA {
     param (
         [Parameter(Mandatory = $false)]
         [string]$PROFILE_NAME = $env:AtlassianPowerKit_PROFILE_NAME,
@@ -207,8 +243,7 @@ Function Get-OSMDeploymentConfigsJIRA {
     $PROFILE_PROJECT_LIST = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-ProjectList-*.json"
     if ($PROFILE_PROJECT_LIST) {
         $PROJECT_LIST = Get-Content $PROFILE_PROJECT_LIST.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-    }
-    else {
+    } else {
         $PROJECT_LIST = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraProjectList' | ConvertFrom-Json -AsHashtable -NoEnumerate
     }
     #$PROJECT_LIST | ForEach-Object { Write-Host "Project: $($_.name) - $($_.key)" }
@@ -222,16 +257,14 @@ Function Get-OSMDeploymentConfigsJIRA {
         $PROFILE_PROJECT_PROPERTIES = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-ProjectProperties-*.json"
         if ($PROFILE_PROJECT_PROPERTIES) {
             $PROFILE_PROJECT_PROPERTIES = Get-Content $PROFILE_PROJECT_PROPERTIES.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROFILE_PROJECT_PROPERTIES = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraProjectProperties' -FunctionParameters @{ PROJECT_KEY = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
         # PROJECT_ISSUE_TYPE_SCHEMA
         $PROJECT_ISSUE_TYPE_SCHEMA = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-IssueTypeSchema-*.json"
         if ($PROJECT_ISSUE_TYPE_SCHEMA) {
             $PROJECT_ISSUE_TYPE_SCHEMA = Get-Content $PROJECT_ISSUE_TYPE_SCHEMA.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROJECT_ISSUE_TYPE_SCHEMA = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraCloudIssueTypeSchema' -FunctionParameters @{ PROJECT_KEY = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
         # 
@@ -239,15 +272,13 @@ Function Get-OSMDeploymentConfigsJIRA {
         $PROJECT_ISSUE_TYPES = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-ProjectIssueTypes-*.json"
         if ($PROJECT_ISSUE_TYPES) {
             $PROJECT_ISSUE_TYPES = Get-Content $PROJECT_ISSUE_TYPES.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROJECT_ISSUE_TYPES = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraProjectIssueTypes' -FunctionParameters @{ PROJECT_KEY_OR_ID = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
         $PROJECT_REQUEST_TYPES = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-RequestTypeSchema-*.json"
         if ($PROJECT_REQUEST_TYPES) {
             $PROJECT_REQUEST_TYPES = Get-Content $PROJECT_REQUEST_TYPES.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROJECT_REQUEST_TYPES = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraServiceDeskRequestTypes' -FunctionParameters @{ PROJECT_KEY = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
         
@@ -255,8 +286,7 @@ Function Get-OSMDeploymentConfigsJIRA {
         $PROJECT_FORMS = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-Forms-*.json"
         if ($PROJECT_FORMS) {
             $PROJECT_FORMS = Get-Content $PROJECT_FORMS.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROJECT_FORMS = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-FormsForJiraProject' -FunctionParameters @{ PROJECT_KEY = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
 
@@ -265,8 +295,7 @@ Function Get-OSMDeploymentConfigsJIRA {
         $PROJECT_WORKFLOWS_SCHEMES = Test-ExistingConfigJSON -CONFIG_FILE_PATHPATTERN "$($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-$PROJECT_KEY-ProjectWorkflowSchemes-*.json"
         if ($PROJECT_WORKFLOWS_SCHEMES) {
             $PROJECT_WORKFLOWS_SCHEMES = Get-Content $PROJECT_WORKFLOWS_SCHEMES.FullName | ConvertFrom-Json -AsHashtable -NoEnumerate
-        }
-        else {
+        } else {
             $PROJECT_WORKFLOWS_SCHEMES = AtlassianPowerKit -Profile $PROFILE_NAME -FunctionName 'Get-JiraProjectWorkflowSchemes' -FunctionParameters @{ PROJECT_KEY = $PROJECT_KEY } | ConvertFrom-Json -AsHashtable -NoEnumerate
         }
 
@@ -295,8 +324,7 @@ function Get-JiraProjectIssueTypes {
     # If the AtlassianPowerKit-J
     if ($PROJECT_KEY_OR_ID -match '^\d+$') {
         $PROJECT_ID = $PROJECT_KEY_OR_ID
-    }
-    else {
+    } else {
         # Get the most recent auda-ProjectList-*.json in the $OUTPUT_PATH or run Get-JiraProjectList and check again for the file
         $PROJECT_LIST_FILE = Get-ChildItem -Path $OUTPUT_PATH -Filter "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-*.json" | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
         While (-not $PROJECT_LIST_FILE) {
@@ -348,15 +376,13 @@ function Get-JiraCloudIssueTypeSchema {
         Write-Debug "Project ID passed: $PROJECT_KEY_OR_ID"
         $PROJECT_ID = $PROJECT_KEY_OR_ID
         $PROJECT_KEY = (Get-JiraProjectByKey -PROJECT_KEY $PROJECT_KEY_OR_ID | ConvertFrom-Json -AsHashtable -NoEnumerate).key
-    }
-    else {
+    } else {
         Write-Debug "Project Key passed: $PROJECT_KEY_OR_ID ... getting project ID..."
         $PROJECT_OBJECT = Get-JiraProjectByKey -PROJECT_KEY $PROJECT_KEY_OR_ID | ConvertFrom-Json -AsHashtable -NoEnumerate
         #ConvertTo-Json $PROJECT_OBJECT -Depth 50 | Write-Debug
         if ($PROJECT_OBJECT.id) {
             $PROJECT_ID = $PROJECT_OBJECT.id
-        }
-        else {
+        } else {
             Write-Error "Project ID not found for project key: $PROJECT_KEY_OR_ID"
         }
     }
@@ -375,17 +401,15 @@ function Get-FilterJQL {
     # While response code is 429, wait and try again
     try {
         $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
-    }
-    catch {
+    } catch {
         # Catch 429 errors and wait for the retry-after time
         if ($_.Exception.Response.StatusCode -eq 429) {
             Write-Warn "429 error, waiting for $RETRY_AFTER seconds..."
             Start-Sleep -Seconds $RETRY_AFTER
             $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
-        }
-        else {
-            Write-Debug "$($MyInvocation.MyCommand.Name): Error getting filter JQL: $($_.Exception.Message)"
-            Write-Error "Error getting filter JQL: $($_.Exception.Message)"
+        } else {
+            Write-Debug "$($MyInvocation.MyCommand.Name): Error getting filter JQL: $($_.Exception.Message)'
+            Write-Error 'Error getting filter JQL: $($_.Exception.Message)"
         }
     }
     Return $REST_RESPONSE.jql

@@ -70,55 +70,89 @@ function Update-GRCosmConfRegister {
         [Parameter(Mandatory = $true)]
         [string]$CONFLUENCE_SPACE_KEY,
         [Parameter(Mandatory = $true)]
-        [string]$CONF_PAGE_ID,
+        [string]$CONFLUENCE_PAGE_ID,
         [Parameter(Mandatory = $true)]
-        [string]$FILTER_ID,
-        [Parameter(Mandatory = $true)]
-        [string]$REGISTER_STORAGE_TEMPLATE_PATH,
-        [Parameter(Mandatory = $false)]
-        [string]$TEMPLATE_PLACEHOLDER_MAP
+        [string]$FILTER_ID
     )
-    if (-not $TEMPLATE_PLACEHOLDER_MAP) {
-        $TEMPLATE_PLACEHOLDER_MAP = @{
-            'GRCOSM_REGISTER_TABLE_DATA' = 'Get-JiraFilterResultsAsConfluenceTable -FILTER_ID $FILTER_ID'
+    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get 
+
+    $WEB_UI_HEADERS = @{
+        Authorization = "Basic $env:AtlassianPowerKit_AtlassianAPIAuthString"
+        Accept        = 'text/html'
+    }
+    $TIME_STAMP = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $FILENAME = $FILTER_INFO.name.Replace(' ', '_').Replace(':', '-').Replace('/', '_').Replace('\', '_').Replace('[^a-zA-Z0-9]', '') + $TIME_STAMP
+    #FiLENAME is just GRC.*, exclude any prefix
+    $FILENAME = $FILENAME -replace '.*GRC', 'GRC'
+    $OUTPUT_FILE = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\$FILENAME"
+    $PUPPETEER_PATH = "$($env:OSM_HOME)\AtlassianPowerKit\AtlassianPowerKit-GRCosm"
+    #Push-Location $PUPPETEER_PATH
+
+    $NodePath = Get-Command -Name 'node' | Select-Object -ExpandProperty Source
+    Write-Debug "NodePath: $NodePath"
+    $ScriptPath = "$PUPPETEER_PATH\generate-pdf.js"
+    $Arguments = @(
+        $ScriptPath, # First argument is the script path
+        "--url=https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/sr/jira.issueviews:searchrequest-printable/$FILTER_ID/SearchRequest-$FILTER_ID.html",
+        "--auth=Basic $env:AtlassianPowerKit_AtlassianAPIAuthString",
+        "--output=$OUTPUT_FILE",
+        '--format=A2',
+        '--landscape',
+        '--scale=0.75',
+        '--background'
+    )
+
+    # Start the Node.js process and wait for it to complete
+    $Process = Start-Process -FilePath $NodePath `
+        -WorkingDirectory $PUPPETEER_PATH `
+        -ArgumentList $Arguments `
+        -NoNewWindow `
+        -PassThru `
+        -Wait
+
+    # Check the exit code
+    if ($Process.ExitCode -ne 0) {
+        Write-Error "Node.js script failed with exit code $($Process.ExitCode)"
+    }
+    else {
+        Write-Host 'Node.js script completed successfully.'
+    }
+    Import-Module "$($env:OSM_HOME)\AtlassianPowerKit\AtlassianPowerKit-Confluence\AtlassianPowerKit-Confluence.psd1" -Force | Out-Null
+    Write-Debug "Removing attachments from Confluence page: $CONFLUENCE_PAGE_ID"
+    Remove-AttachmentsFromConfPage -CONFLUENCE_PAGE_ID $CONFLUENCE_PAGE_ID | Out-Null
+    Write-Debug "Setting attachment for Confluence page: $CONFLUENCE_PAGE_ID to $OUTPUT_FILE.pdf"
+    Set-AttachmentForConfluencePage -CONFLUENCE_PAGE_ID $CONFLUENCE_PAGE_ID -ATTACHMENT_FILE_PATH "$OUTPUT_FILE.pdf" | Out-Null
+    Write-Debug "Attached file: $OUTPUT_FILE.pdf to Confluence page: $CONFLUENCE_PAGE_ID"
+    $CURRENT_PAGE_STORAGE_FORMAT_FILE = Export-ConfluencePageStorageFormat -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -CONFLUENCE_PAGE_ID $CONFLUENCE_PAGE_ID
+    $CURRENT_PAGE_STORAGE_FORMAT = Get-Content $CURRENT_PAGE_STORAGE_FORMAT_FILE
+    # Update  ri:filename="GRCosm-_Asset_Register20250129_005159.pdf" to the uploaded file name
+    $UPDATED_PAGE_STORAGE_FORMAT = $CURRENT_PAGE_STORAGE_FORMAT -replace 'ri:filename=".*?"', "ri:filename=""$FILENAME.pdf"""
+    Write-Debug "Updated storage format for Confluence page: $CONFLUENCE_PAGE_ID, getting current page info..."
+    $CURRENT_PAGE_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    # Step 4: Prepare the updated content
+    $UPDATEDBODY = @{
+        id      = $CONFLUENCE_PAGE_ID
+        status  = 'current'
+        title   = $CURRENT_PAGE_INFO.title
+        body    = @{
+            storage = @{
+                representation = 'storage'
+                value          = $UPDATED_PAGE_STORAGE_FORMAT
+            }
         }
-    }
-    # Check template file exists
-    if (-not (Test-Path $REGISTER_STORAGE_TEMPLATE_PATH)) {
-        Write-Error "Update-GRCosmConfRegister: Template file not found: $REGISTER_STORAGE_TEMPLATE_PATH"
-    }
-    # Backup the Confluence page storage format
-    $BACKUP_FILE = Export-ConfluencePageStorageFormat -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -CONFLUENCE_PAGE_ID $CONF_PAGE_ID
-    Write-Debug "Backup file: $BACKUP_FILE"
+        version = @{
+            number = $CURRENT_PAGE_INFO.version.number + 1
+        }
+    } | ConvertTo-Json -Depth 40 -Compress
+    #$UPDATEDBODY = $UPDATEDBODY -replace '\\"', '"'
+    Write-Debug "Updated body: $UPDATEDBODY"
 
-    # Split $BACKUP_FILE on _ and drop the last element
-    $BACKUP_FILE_BASE = $($BACKUP_FILE -split '_2')[0]
-
-    # Get JIRA filter data - Fields are determined by the JIRA filter
-    # Write-Debug '############################################################################################'
-    Write-Debug 'Update-GRCosmConfRegister: Getting JIRA filter results as Confluence table...'
-    $CONF_REGISTER_TABLE_DATA = Get-JiraFilterResultsAsConfluenceTable -FILTER_ID $FILTER_ID
-    Write-Debug 'Update-GRCosmConfRegister: Jira filter results as Confluence table returned'
-    # Write-Debug "Type: $($CONF_REGISTER_TABLE_DATA.GetType())"
-    # Write-Debug "Length: $($CONF_REGISTER_TABLE_DATA.Length)"
-    # Write-Debug "Content: `n $($CONF_REGISTER_TABLE_DATA)"
-    Write-Debug 'Update-GRCosmConfRegister: Getting Confluence template data...'
-    # ([string]::join("",$CONTENT.Split("`n").Trim()))
-    $UPDATED_PAGE_STORAGE_DATA = Get-Content $REGISTER_STORAGE_TEMPLATE_PATH -Raw
-    Write-Debug 'Update-GRCosmConfRegister: Confluence template data returned'
-    # Write-Debug "Type: $($UPDATED_PAGE_STORAGE_DATA.GetType())"
-    # Write-Debug "Length: $($UPDATED_PAGE_STORAGE_DATA.Length)"
-    # Write-Debug "Content: `n $($UPDATED_PAGE_STORAGE_DATA)"
-    Write-Debug 'Update-GRCosmConfRegister: Replacing GRCOSM_REGISTER_TABLE_DATA PLA with JIRA filter results...'
-    $UPDATED_PAGE_STORAGE_DATA = $UPDATED_PAGE_STORAGE_DATA -replace 'GRCOSM_REGISTER_TABLE_DATA', $CONF_REGISTER_TABLE_DATA 
-    Write-Debug 'Update-GRCosmConfRegister: GRCOSM_REGISTER_TABLE_DATA replaced'
-    Write-Debug "Type: $($UPDATED_PAGE_STORAGE_DATA.GetType())"
-    Write-Debug '############################  STORAGE FORMAT TO SEND ################################################'
-    $UPDATED_PAGE_STORAGE_DATA | Out-File "$BACKUP_FILE_BASE-LATEST.xml" -Encoding UTF8 -Force
-    Write-Debug "############################  STORAGE FORMAT TO SEND ################################################ `n `n `n"
-    Write-Debug "$BACKUP_FILE_BASE-LATEST.xml"
-    Set-ConfluencePageContent -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -CONFLUENCE_PAGE_ID $CONF_PAGE_ID -CONFLUENCE_PAGE_STORAGE_FILE "$BACKUP_FILE_BASE-LATEST.xml"
-
+    # Step 5: Update the Confluence page
+    Write-Debug "Pushing updated Confluence page: $CONFLUENCE_PAGE_ID"
+    $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -ContentType 'application/json' -Method Put -Body $UPDATEDBODY
+    Write-Debug "Update response: $UPDATE_RESPONSE"
+    Write-Debug "Confluence page updated: $CONFLUENCE_PAGE_ID"
+    Return $UPDATE_RESPONSE | ConvertTo-Json
 }
 
 function Get-OSMPlaceholdersJira {
@@ -209,7 +243,8 @@ function Get-OSMPlaceholdersConfluence {
                 $placeholder | ForEach-Object { 
                     # Write output in red
                     Write-Output "#### PLACEHOLDER FOUND!!! See: $($FILE.FullName): $_"
-                    $PLACEHOLDERS += , ($($FILE.NAME), $_) }
+                    $PLACEHOLDERS += , ($($FILE.NAME), $_) 
+                }
             }
             else {
                 Write-Debug "No placeholders found in file: $($FILE.FullName)"
