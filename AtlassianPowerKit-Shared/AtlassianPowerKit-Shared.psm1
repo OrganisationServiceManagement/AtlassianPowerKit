@@ -9,7 +9,7 @@
         - Get-AtlassianAPIEndpoint
         - Get-OpsgenieAPIEndpoint
         - Clear-AtlassianPowerKitGlobalVariables
-    - To list all functions in this module, run: Get-Command -Module AtlassianPowerKit-Shared
+    - To list all functions in this module, run: `Get-Command -Module AtlassianPowerKit-Shared`
     - Debug output is enabled by default. To disable, set $DisableDebug = $true before running functions.
 
 .EXAMPLE
@@ -64,8 +64,7 @@ function Clear-AtlassianPowerKitProfileDirs {
 
         if ($itemsToArchive.Count -eq 0) {
             Write-Debug "Profile directory $dir. FullName has nothing to archive. Skipping..."
-        }
-        else {
+        } else {
             # Archiving items
             Compress-Archive -Path $itemsToArchive.FullName -DestinationPath $ARCHIVE_PATH -Force
             Write-Debug "Archiving $($dir.BaseName) to $ARCHIVE_NAME in $($dir.FullName)...."
@@ -120,20 +119,17 @@ function Get-PaginatedJSONResults {
         try {
             if ($METHOD -eq 'POST') {
                 $PAGE_RESULTS = Invoke-RestMethod -Uri $URI -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method $METHOD -Body $ONE_POST_BODY -ContentType 'application/json'
-            }
-            else {
+            } else {
                 $PAGE_RESULTS = Invoke-RestMethod -Uri $URI -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method $METHOD -ContentType 'application/json'
                 #$PAGE_RESULTS | ConvertTo-Json -Depth 100 | Write-Debug
             }
-        }
-        catch {
+        } catch {
             # Catch 429 errors and wait for the retry-after time
             if ($_.Exception.Response.StatusCode -eq 429) {
                 Write-Warn "429 error, waiting for $RETRY_AFTER seconds..."
                 Start-Sleep -Seconds $RETRY_AFTER
                 Get-PageResult -URI $URI -ONE_POST_BODY $ONE_POST_BODY
-            }
-            else {
+            } else {
                 Write-Error "Error: $($_.Exception.Message)"
                 throw 'Get-PageResult failed'
             }
@@ -148,17 +144,14 @@ function Get-PaginatedJSONResults {
                     $ONE_POST_BODY = $ONE_POST_BODY | ConvertFrom-Json
                     $ONE_POST_BODY.nextPageToken = $PAGE_RESULTS.nextPageToken
                     #$ONE_POST_BODY = $ONE_POST_BODY | ConvertTo-Json
-                }
-                else {
+                } else {
                     $URI = $URI + "&nextPageToken=$($PAGE_RESULTS.nextPageToken)"
                 }
-            }
-            elseif ($PAGE_RESULTS.nextPage) {
+            } elseif ($PAGE_RESULTS.nextPage) {
                 Write-Debug "Next page: $($PAGE_RESULTS.nextPage)"
                 if ($METHOD -eq 'POST') {
                     Write-Error "$($MyInvocation.InvocationName) does not support POST method with nextPage. Exiting..."
-                }
-                else {
+                } else {
                     $URI = $PAGE_RESULTS.nextPage
                 }
             }
@@ -171,8 +164,7 @@ function Get-PaginatedJSONResults {
     }
     if ($POST_BODY) {
         $RESULTS_ARRAY = Get-PageResult -URI $URI -METHOD $METHOD -ONE_POST_BODY $POST_BODY
-    }
-    else {
+    } else {
         $RESULTS_ARRAY = Get-PageResult -URI $URI -METHOD $METHOD
     }
     Write-Debug "$($MyInvocation.InvocationName) results:"
@@ -187,8 +179,7 @@ function Get-AtlassianPowerKitProfileList {
         Register-AtlassianPowerKitVault
         Write-Debug "$($MyInvocation.InvocationName) vault registered successfully."
         $PROFILE_LIST = @()
-    }
-    else {
+    } else {
         #Write-Debug 'Vault already registered, getting profiles...'
         unlock-vault -VaultName $VAULT_NAME | Write-Debug
         $PROFILE_LIST = (Get-SecretInfo -Vault $VAULT_NAME -Name '*').Name
@@ -251,8 +242,7 @@ function Unlock-Vault {
             throw 'Unlock-Vault failed. Exiting.'
         }
         Unlock-SecretStore -Password $VAULT_KEY | Write-Debug
-    }
-    catch {
+    } catch {
         # If an error is thrown, the vault is locked.
         Write-Debug "Unlock-Vault failed: $_ ..."
         throw 'Unlock-Vault failed Exiting'
@@ -274,8 +264,7 @@ function Update-AtlassianPowerKitVault {
     Unlock-Vault -VaultName $VAULT_NAME | Write-Debug
     try {
         Set-Secret -Name $ProfileName -Secret $ProfileData -Vault $VAULT_NAME | Write-Debug
-    } 
-    catch {
+    } catch {
         Write-Debug "Update of vault failed for $ProfileName."
         throw "Update of vault failed for $ProfileName."
     }
@@ -312,8 +301,7 @@ function Register-AtlassianPowerKitVault {
     }
     if (Get-SecretVault -Name $VAULT_NAME -ErrorAction SilentlyContinue) {
         Write-Debug "Vault $VAULT_NAME already exists."
-    }
-    else {
+    } else {
         Write-Debug "Registering vault $VAULT_NAME..."
         $VAULT_KEY = Get-VaultKey
         $storeConfiguration = @{
@@ -337,8 +325,7 @@ function Register-AtlassianPowerKitVault {
     try {
         $VAULT_KEY = Get-VaultKey
         Unlock-Vault -VaultName $VAULT_NAME | Write-Debug
-    }
-    catch {
+    } catch {
         Write-Debug "Failed to unlock vault $VAULT_NAME. Please check the vault key file."
         Write-Debug "De-registering vault $VAULT_NAME... and resetting vault key file."
         Unregister-SecretVault -Name $VAULT_NAME | Write-Debug
@@ -349,8 +336,7 @@ function Register-AtlassianPowerKitVault {
     if ($ATTEMPT -gt 5) {
         Write-Debug "$($MyInvocation.InvocationName) failed after $ATTEMPT attempts. Exiting..."
         throw "$($MyInvocation.InvocationName) failed!"
-    }
-    else {
+    } else {
         Register-AtlassianPowerKitVault -ATTEMPT ($ATTEMPT + 1)
     }
     Return $true
@@ -368,8 +354,7 @@ function Register-AtlassianPowerKitProfileInVault {
 
     try {
         Register-AtlassianPowerKitVault | Write-Debug
-    } 
-    catch {
+    } catch {
         Write-Debug "$($MyInvocation.InvocationName) failed to register vault. Exiting"
         throw "$($MyInvocation.InvocationName) failed to register vault. Exiting"
     }
@@ -379,8 +364,7 @@ function Register-AtlassianPowerKitProfileInVault {
     if ($null -ne $VAULT_PROFILES_LIST -and $VAULT_PROFILES_LIST.Count -gt 0 -and $VAULT_PROFILES_LIST.Contains($ProfileName)) {
         Write-Debug "$($MyInvocation.InvocationName) Profile $ProfileName already exists in the vault. You must run AtlssianPowerKit -RemoveVaultProfile $ProfileName or AtlssianPowerKit -ResetVault to remove it first."
         throw "$($MyInvocation.InvocationName) Profile $ProfileName already exists in the vault. You must run AtlssianPowerKit -RemoveVaultProfile $ProfileName or AtlssianPowerKit -ResetVault to remove it first."
-    }
-    else {
+    } else {
         #Write-Debug "Profile $ProfileName does not exist. Creating..."
         Write-Debug "Preparing profile data for $ProfileName..."
         $CredPair = "$($AtlassianAPICredentialPair.UserName):$($AtlassianAPICredentialPair.GetNetworkCredential().password)"
@@ -411,8 +395,7 @@ function Test-VaultProfileLoaded {
             Write-Debug "Profile is missing required environment variable: $envVarNameKey"
             $PROFILE_LOADED = $false
             break
-        }
-        else {
+        } else {
             #Write-Debug "Found required environment variable: $envVarNameKey already set."
             $ENV_STATE = $null
         }
@@ -424,8 +407,7 @@ function Set-AtlassianAPIHeaders {
     if (!$(Test-VaultProfileLoaded)) {
         Write-Debug "$($MyInvocation.InvocationName) failed. Profile not loaded. Exiting..."
         throw "$($MyInvocation.InvocationName) failed. Profile not loaded. Exiting..."
-    }
-    else {
+    } else {
         $HEADERS = @{
             Authorization = "Basic $($env:AtlassianPowerKit_AtlassianAPIAuthString)"
             Accept        = 'application/json'
@@ -445,8 +427,7 @@ function Set-AtlassianPowerKitProfileFromVault {
     if ($SKIP_LOAD) {
         Get-Item -Path "env:$ENVAR_PREFIX*" | Write-Debug
         Write-Debug "$($MyInvocation.InvocationName) profile already loaded. Skipping vault load..."
-    }
-    else {
+    } else {
         Write-Debug "Profile $SelectedProfileName not loaded. Loading from vault..."
         # Load all profiles from the secret vault
         if (!$(Get-SecretVault -Name $VAULT_NAME -ErrorAction SilentlyContinue)) {
@@ -460,8 +441,7 @@ function Set-AtlassianPowerKitProfileFromVault {
             $PROFILE_LIST | ConvertTo-Json -Depth 100 | Write-Debug
             Write-Error "$($MyInvocation.InvocationName) failed. Profile $SelectedProfileName not found in the vault. Exiting..."
             Throw "$($MyInvocation.InvocationName) failed. Profile $SelectedProfileName not found in the vault. Exiting..."
-        }
-        else {
+        } else {
             Write-Debug "Profile $SelectedProfileName exists in the vault, loading..."
             try {
                 # if vault is locked, unlock it
@@ -481,8 +461,7 @@ function Set-AtlassianPowerKitProfileFromVault {
                         Get-Item -Path "env:$VAR_NAME" | Write-Debug
                     }
                 }
-            }
-            catch {
+            } catch {
                 Write-Debug "Failed to load profile $SelectedProfileName. Please check the vault key file."
                 throw "Failed to load profile $SelectedProfileName. Please check the vault key file."
             }
@@ -506,8 +485,7 @@ function Test-AtlassianPowerKitProfile {
         $REST_RESPONSE = Invoke-RestMethod -Method Get -Uri $TEST_ENDPOINT -Headers $HEADERS -StatusCodeVariable REST_STATUS
         #Write-Debug "Results: $($REST_RESULTS | ConvertTo-Json -Depth 10) ..."
         Write-Debug "$($MyInvocation.InvocationName) returned status code: $($REST_STATUS)"
-    }
-    catch {
+    } catch {
         Write-Debug "$($MyInvocation.InvocationName) failed: with $_"
         Write-Debug 'Rest response: '
         $REST_RESPONSE | ConvertTo-Json -Depth 10 | Write-Debug
@@ -543,8 +521,7 @@ function Set-AtlassianPowerKitProfile {
             if (!$requiredEnvVar) {
                 Write-Error "Required environment variable $envVarNameKey not found. Exiting..."
                 throw "Required environment variable $envVarNameKey not found. Exiting..."
-            }
-            else {
+            } else {
                 Write-Debug "Required environment variable found: $($requiredEnvVar.Name) = $(($requiredEnvVar.Value).substring(0, [System.Math]::Min(20, $requiredEnvVar.Value.Length)))..."
                 # if the environment variable is AtlassianAPIEndpoint, use the prefix as the profile name (setting as environment variable: AtlassianPowerKit_PROFILE_NAME)
                 if ($requiredEnvVar.Name -eq 'AtlassianPowerKit_AtlassianAPIEndpoint') {
@@ -556,12 +533,10 @@ function Set-AtlassianPowerKitProfile {
                 }
             }
         }
-    }
-    elseif ($ProfileName -ne $false) {
+    } elseif ($ProfileName -ne $false) {
         $VAULT_LOADED_ARRAY = Set-AtlassianPowerKitProfileFromVault -SelectedProfileName $ProfileName
         $VAULT_LOADED_ARRAY | ForEach-Object { Write-Output "$($_.Name) = $($_.Value)" | Out-Null } 
-    }
-    else {
+    } else {
         Write-Error 'ProfileName is required. Exiting...'
         throw 'ProfileName is required. Exiting...'
     }

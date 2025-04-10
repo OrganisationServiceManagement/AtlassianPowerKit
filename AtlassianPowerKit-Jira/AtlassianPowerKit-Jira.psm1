@@ -88,7 +88,6 @@ $RETRY_AFTER = 10
 #    return $TABLE_ROW
 #}
 
-
 function ConvertTo-JSONMarkdownList {
     param (
         [Parameter(Mandatory = $true)]
@@ -873,6 +872,27 @@ function Set-JiraIssueField {
     return $UPDATE_ISSUE_RESPONSE
 }
 
+
+function Set-StatementOfApplicabilityRefs {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$JQL_STRING,
+        [Parameter(Mandatory = $true)]
+        [hashtable[]]$REF_MAP_HASHTABLE_ARRAY
+    )
+    # enssure that the hashtable array has at least one element and all elements are hashtable with 4 keys: FIELD_ID, FIELD_NAME, LINK_TYPE, LINK_DIRECTION
+
+
+
+    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING
+    $ISSUES.issues | ForEach-Object {
+        $ISSUE = $_
+        $ISSUE_KEY = $ISSUE.key
+        Write-Debug "Updating fields for issue: $($_.key)"
+        Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FIELD_TYPE $FIELD_TYPE
+    }
+}
+
 # Function to set-jiraissuefield for a Jira issue field for all issues in JQL query results gibven the JQL query string, field name, and new value
 function Set-JiraIssueFieldForJQLQueryResults {
     param (
@@ -896,6 +916,32 @@ function Set-JiraIssueFieldForJQLQueryResults {
         $ISSUE_KEY = $ISSUE.key
         $ISSUE_SUMMARY = $ISSUE.fields.summary
         Write-Debug "Updating fields for issue: $($_.key - $ISSUE_SUMMARY)"
+        if (! $DryRun) {
+            Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FIELD_TYPE $FIELD_TYPE
+        } else {
+            Write-Debug "Dry Run: Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE"
+        }
+    }
+}
+
+function Set-OSMPortalLinkForJQLQueryResults {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$JQL_STRING = 'project = GRCosm and issueType not in subTaskIssueTypes()',
+        [Parameter(Mandatory = $true)]
+        [string]$FIELD_REF,
+        [Parameter(Mandatory = $false)]
+        [string]$FIELD_TYPE = 'text',
+        [Parameter(Mandatory = $false)]
+        [string[]]$NEW_VALUE = @('<p><a href="https://auda.atlassian.net/servicedesk/customer/portal/7/GRCOSM-2125" title="smart-link" class="external-link" rel="nofollow noreferrer">https://auda.atlassian.net/servicedesk/customer/portal/7/', '</a> </p></customfieldvalue>'),
+        [Parameter(Mandatory = $false)]
+        [Switch]$DryRun = $false
+    )
+    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING
+    $ISSUES.issues | ForEach-Object {
+        $ISSUE = $_
+        $ISSUE_KEY = $ISSUE.key
+        Write-Debug "Updating fields for issue: $($_.key)"
         if (! $DryRun) {
             Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FIELD_TYPE $FIELD_TYPE
         } else {
@@ -1839,7 +1885,6 @@ function Reset-FormsFromJQLQueryResults {
     # Get JQL query results
     Remove-FormsFromJQLQueryResults -JQL_STRING $JQL_STRING
 }
-
 
 # Function to remove forms from JQL query results
 function Remove-FormsFromJQLQueryResults {

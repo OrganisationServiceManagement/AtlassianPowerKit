@@ -55,6 +55,7 @@ function Import-NestedModules {
             Write-Error "Multiple module files found for $MODULE_NAME. Exiting."
             throw "Multiple module files found for $MODULE_NAME. Exiting."
         }
+        Write-Debug "Importing nested module: $PSD1_FILE"
         Import-Module $PSD1_FILE.FullName -Force
         Write-Debug "Imported nested module: $PSD1_FILE,  -- $($PSD1_FILE.BaseName)"
         #Write-Debug "Importing nested module: .\$($_.BaseName)\$($_.Name)"
