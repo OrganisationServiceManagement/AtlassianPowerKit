@@ -1,23 +1,3 @@
-<#
-.SYNOPSIS
-    Atlassian Cloud PowerKit module for interacting with Atlassian Cloud REST APIs and other handy functions relating to the OSM project.
-
-.DESCRIPTION
-    See the [wiki](https://github.com/OrganisationServiceManagement/AtlassianPowerKit/wiki) for more information on how to use this module.
-
-.EXAMPLE
-    Use-AtlassianPowerKit
-    This example lists all functions in the AtlassianPowerKit module.
-.EXAMPLE
-    Use-AtlassianPowerKit
-    Simply run the function to see a list of all functions in the module and nested modules.
-.EXAMPLE
-    Get-DefinedPowerKitVariables
-    This example lists all variables defined in the AtlassianPowerKit module.
-.LINK
-    GitHub: https://github.com/OrganisationServiceManagement/AtlassianPowerKit
-
-#>
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 function Get-RequisitePowerKitModules {
     $AtlassianPowerKitRequiredModules = @('PowerShellGet', 'Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
@@ -322,9 +302,9 @@ function Import-AtlassianPowerKitProfile {
                 Write-Debug "Only one profile found in the vault, selecting $selectedProfile"
                 $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -ProfileName $selectedProfile
             } else {
-                Write-Output 'Multiple profiles found in the vault but no profile provided, please use the -APK_Profile parameter to specify the desired profile'
-                foreach ($APK_PROFILENAME in $VAULT_PROFILES) {
-                    Write-Output "      AtlassianPowerkit -APK_PROFILENAME $APK_PROFILENAME"
+                Write-Output 'Multiple profiles found in the vault but no profile provided, please use the -OSMProfile parameter to specify the desired profile'
+                foreach ($OSMProfileNAME in $VAULT_PROFILES) {
+                    Write-Output "      AtlassianPowerkit -OSMProfileNAME $OSMProfileNAME"
                 }
                 Throw 'Ambiguous profile state'
             }
@@ -339,7 +319,7 @@ function Import-AtlassianPowerKitProfile {
 function AtlassianPowerKit {
     param (
         [Parameter(Mandatory = $false)]
-        [string]$APK_Profile,
+        [string]$OSMProfile,
         [Parameter(Mandatory = $false)]
         [switch]$ArchiveProfileDirs,
         [Parameter(Mandatory = $false)]
@@ -405,9 +385,9 @@ function AtlassianPowerKit {
         } elseif ($NoVault) {
             Write-Debug '-NoVault flagged, attempting to load profile from environment variables'
             $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -NoVault 
-        } elseif ($APK_Profile) {
-            Write-Debug "Profile provided: $APK_Profile"
-            $ProfileName = $APK_Profile.Trim().ToLower()
+        } elseif ($OSMProfile) {
+            Write-Debug "Profile provided: $OSMProfile"
+            $ProfileName = $OSMProfile.Trim().ToLower()
             $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $ProfileName
         } else {
             Write-Debug 'No profile provided, checking if vault has only 1 profile'

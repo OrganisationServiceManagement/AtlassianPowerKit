@@ -58,7 +58,6 @@
 
 .EXAMPLE
     Get-Jira-CloudJQLQueryResults -JQL_STRING 'project is not EMPTY' -JSON_FILE_PATH 'All-Issues.json'
-
     This example gets the Jira Cloud JQL query results for all issues in all projects.
 
 .LINK
