@@ -1,0 +1,24 @@
+<ac:structured-macro
+  ac:name="iframe"
+  ac:schema-version="1"
+  data-layout="default"
+  ac:local-id="{{ AC_LOCAL_ID }}"
+  ac:macro-id="{{ AC_MACRO_ID }}"
+  ><ac:parameter ac:name="allowfullscreen">true</ac:parameter
+  ><ac:parameter ac:name="src"
+    ><ri:url ri:value="{{ EMBED_URL }}" /></ac:parameter
+  ><ac:parameter ac:name="title">{{ FILE_NAME_BASE }}</ac:parameter
+  ><ac:parameter ac:name="align">middle</ac:parameter
+  ><ac:parameter ac:name="longdesc"
+    >view source: {{ VIEW_URL }}, download source:
+    {{ DOWNLOAD_URL }}</ac:parameter
+  ><ac:parameter ac:name="marginwidth">0</ac:parameter
+  ><ac:parameter ac:name="scrolling">yes</ac:parameter
+  ><ac:parameter ac:name="width">100%</ac:parameter
+  ><ac:parameter ac:name="name">{{ FILE_NAME_BASE }}</ac:parameter
+  ><ac:parameter ac:name="frameborder">hide</ac:parameter
+  ><ac:parameter ac:name="id">{{ FILE_NAME_BASE }}</ac:parameter
+  ><ac:parameter ac:name="marginheight">0</ac:parameter
+  ><ac:parameter ac:name="height">1080px</ac:parameter></ac:structured-macro
+>
+<p />

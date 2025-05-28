@@ -1,0 +1,1 @@
+docker build -t markz0r/atlassian-powerkit:latest .

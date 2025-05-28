@@ -1,4 +1,31 @@
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
+
+function Export-ConfluencePageToMarkDown {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$CONFLUENCE_SPACE_KEY,
+        [Parameter(Mandatory = $true)]
+        [int64]$CONFLUENCE_PAGE_ID
+    )
+    Write-Debug 'Exporting Confluence page to markdown...not done yet'
+    ## Check if node module @atlaskit/adf-utils is installed
+    #$NODE_MODULE = 'atlaskit/adf-utils'
+    #$NODE_MODULE_PATH = "$($env:OSM_HOME)\node_modules\$NODE_MODULE"
+    #if (-not (Test-Path $NODE_MODULE_PATH)) {
+    #    #Check if node is installed
+    #    $NODE_PATH = Get-Command -Name 'node' -ErrorAction SilentlyContinue
+    #    if (-not $NODE_PATH) {
+    #        Write-Error 'Node.js is not installed. Please install Node.js and run `npm install @atlaskit/adf-utils` to install the required node module.'
+    #    }
+    #    else {
+    #        Push-Location $env:OSM_HOME\AtlassianPowerKit\AtlassianPowerKit-Confluence
+    #        npm install $NODE_MODULE
+    #        Pop-Location
+    #    }
+    #}
+    
+}
 function Export-ConfluencePage {
     param (
         [Parameter(Mandatory = $true)]
@@ -6,30 +33,47 @@ function Export-ConfluencePage {
         [Parameter(Mandatory = $true)]
         [int64]$CONFLUENCE_PAGE_ID,
         [Parameter(Mandatory = $false)]
-        [string]$CONFLUENCE_PAGE_FORMAT = 'storage'
+        [string]$CONFLUENCE_PAGE_FORMAT = 'atlas_doc_format'
     )
+    Write-Debug "Recommended format is 'atlas_doc_format', see: https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/"
     $CONFLUENCE_PAGE_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$($CONFLUENCE_PAGE_ID)?body-format=$($CONFLUENCE_PAGE_FORMAT)"
     Write-Debug "Exporting page format: $CONFLUENCE_PAGE_FORMAT for page ID: $CONFLUENCE_PAGE_ID ... URL: $CONFLUENCE_PAGE_ENDPOINT ..."
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
-        Write-Debug $REST_RESULTS.getType()
-        Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+        # Print properties of the REST_RESULTS object
+        #$REST_RESULTS | Get-Member -MemberType Properties -Force | ForEach-Object {
+        #    Write-Debug "Property: $($_.Name), Value: $($REST_RESULTS.$($_.Name))"
+        #}
+    } catch {
         Write-Error "Error exporting page format: $CONFLUENCE_PAGE_FORMAT for page ID: $CONFLUENCE_PAGE_ID"
     }
     $CONFLUENCE_PAGE_DIR = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\CONFLUENCE"
-    $CONFLUENCE_PAGE_CONTENT = $REST_RESULTS.body.$CONFLUENCE_PAGE_FORMAT
+    if ($CONFLUENCE_PAGE_FORMAT -eq 'atlas_doc_format') {
+        $CONFLUENCE_PAGE_CONTENT = $REST_RESULTS.body.atlas_doc_format.value
+        $FILE_EXTENSION = 'json'
+    } elseif ($CONFLUENCE_PAGE_FORMAT -eq 'storage') {
+        $CONFLUENCE_PAGE_CONTENT = $REST_RESULTS.body.storage.value
+        $FILE_EXTENSION = 'xml'
+    } else {
+        $CONFLUENCE_PAGE_CONTENT = $REST_RESULTS | ConvertTo-Json -Depth 100
+        $FILE_EXTENSION = 'json'
+    }
     $CONFLUENCE_PAGE_TITLE = $REST_RESULTS.title
     $CONFLUENCE_PAGE_TITLE_FILENAME = $CONFLUENCE_PAGE_TITLE -replace ' ', '_' -replace ':', '-' -replace '[^a-zA-Z0-9_-]', ''
     $CURRENT_DATE_TIME = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $OUTFILE = "$CONFLUENCE_PAGE_DIR\$($CONFLUENCE_PAGE_TITLE_FILENAME)_$CURRENT_DATE_TIME.$($EXPORT_EXTENSION_MAP[$CONFLUENCE_PAGE_FORMAT])"
+    $OUTFILE = "$CONFLUENCE_PAGE_DIR\$($CONFLUENCE_PAGE_TITLE_FILENAME)-$CURRENT_DATE_TIME.$FILE_EXTENSION"
     if (-not (Test-Path $CONFLUENCE_PAGE_DIR)) {
         New-Item -ItemType Directory -Path $CONFLUENCE_PAGE_DIR -Force | Out-Null
     }
     Write-Debug 'Confluence Page Content:'
-    $CONFLUENCE_PAGE_CONTENT.Value | Set-Content -Path $OUTFILE -Encoding UTF8 -Force
-    return $OUTFILE
+    $CONFLUENCE_PAGE_CONTENT | Set-Content -Path $OUTFILE -Encoding UTF8 -Force
+    $RETURN_OBJ = @{
+        CONFLUENCE_PAGE_TITLE  = $CONFLUENCE_PAGE_TITLE
+        CONFLUENCE_PAGE_ID     = $CONFLUENCE_PAGE_ID
+        CONFLUENCE_PAGE_FORMAT = $CONFLUENCE_PAGE_FORMAT
+        FILE_NAME              = $OUTFILE
+    }
+    return $RETURN_OBJ | ConvertTo-Json
 }
 
 function Export-ConfluencePageAllChildren {
@@ -38,10 +82,10 @@ function Export-ConfluencePageAllChildren {
         [string]$CONFLUENCE_SPACE_KEY,
         [Parameter(Mandatory = $true)]
         [int64]$CONFLUENCE_PAGE_ID,
-        [Parameter(Mandatory = $true)]
-        [string]$CONFLUENCE_PAGE_FORMAT,
         [Parameter(Mandatory = $false)]
-        [int]$DepthLimit = 0,
+        [string]$CONFLUENCE_PAGE_FORMAT = 'atlas_doc_format',
+        [Parameter(Mandatory = $false)]
+        [int]$DepthLimit = 10,
         [Parameter(Mandatory = $false)]
         [int]$DepthCount = 0
     )
@@ -99,8 +143,7 @@ function Export-ConfluencePageWord {
         $response = Invoke-WebRequest -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
         # Save the content directly to the file
         [System.IO.File]::WriteAllBytes($FILE_NAME, $response.Content)
-    }
-    catch {
+    } catch {
         Write-Error "Exception.Message: $($_.Exception.Message)"
     }
     $FILE_STRING = "$($directoryPath.FullName)\$CONFLUENCE_PAGE_TITLE.doc"
@@ -161,12 +204,10 @@ function Export-ConfluencePageWord {
         $templateDoc.SaveAs("$directoryPath\$CONFLUENCE_PAGE_TITLE-Templated.pdf", 17)
         $sourceDoc.Close()
         $templateDoc.Close()
-    }
-    catch {
+    } catch {
         Write-Debug 'AtlassianPowerKit-Confluence.psm1:Export-ConfluencePageWord - Errored!'
         Write-Error "Exception.Message: $($_.Exception.Message)"
-    }
-    finally {
+    } finally {
         $wordApp.Quit()
         $wordApp2.Quit()
     }
@@ -212,8 +253,7 @@ function Export-ConfluencePageStorageFormat {
         #Write-Debug "Rest Result Fields, Recursive: $($REST_RESULTS | Get-Member -MemberType Properties -Force)"
         #Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
         Write-Debug '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++'
-    } 
-    catch {
+    } catch {
         $functionName = (Get-PSCallStack)[0].FunctionName
         Write-Debug "$functionName errored: $($_.Exception.Message)"
         Write-Error "$functionName errored: $($_.Exception.Message)"
@@ -246,7 +286,7 @@ function Export-ConfluencePageStorageFormatForChildren {
         [Parameter(Mandatory = $true)]
         [string]$CONFLUENCE_PARENT_PAGE_TITLE,
         [Parameter(Mandatory = $false)]
-        [int]$DepthLimit = 0,
+        [int]$DepthLimit = 10,
         [Parameter(Mandatory = $false)]
         [int]$DepthCount = 0
     )
@@ -284,8 +324,7 @@ function Get-ConfluencePageByID {
     Write-Debug "Confluence Page Endpoint: $CONFLUENCE_PAGE_ENDPOINT"
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
-    }
-    catch {
+    } catch {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         Write-Error "Get-ConfluencePageByID: $($_.Exception.Message)"
     }
@@ -312,8 +351,7 @@ function Get-ConfluencePageByTitle {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
         #Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         Write-Error "Error updating field: $($_.Exception.Message)"
     }
@@ -326,8 +364,7 @@ function Get-ConfluenceSpaceList {
     $CONFLUENCE_SPACES_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/spaces"
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_SPACES_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
@@ -348,8 +385,7 @@ function Get-ConfluenceSpacePropertiesBySpaceID {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_SPACE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
         Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
@@ -369,8 +405,7 @@ function Get-ConfluenceChildPages {
         $REST_RESULTS = Invoke-RestMethod -Uri $GET_CHILD_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
         Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
@@ -390,22 +425,82 @@ function Remove-AttachmentsFromConfPage {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ATTACHMENTS_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
         Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
     $REST_RESULTS.results | ForEach-Object {
         if ($EXCLUDE_ATTACHMENT_NAMES -contains $_.title) {
             Write-Debug "Excluding attachment: $($_.title)"
-        }
-        else {
+        } else {
             $CONFLUENCE_PAGE_ATTACHMENT_DELETE_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/attachments/$($_.id)"
             Write-Debug "Deleting attachment: $($_.title)"
             Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ATTACHMENT_DELETE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Delete
         }
     }
 }
+
+function Set-AttachmentForConfluencePage {
+    param (
+        [Parameter(Mandatory = $true)]
+        [int64]$CONFLUENCE_PAGE_ID,
+        [Parameter(Mandatory = $true)]
+        [string]$ATTACHMENT_FILE_PATH
+    )
+
+    # Validate the file path
+    if (-not (Test-Path $ATTACHMENT_FILE_PATH)) {
+        Write-Error "Attachment file does not exist: $ATTACHMENT_FILE_PATH"
+        return
+    }
+
+    # API endpoint
+    $CONFLUENCE_PAGE_V1_ATTACHMENTS_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/rest/api/content/$CONFLUENCE_PAGE_ID/child/attachment"
+
+    # Request headers
+    $REQUEST_HEADERS = @{
+        'Authorization'     = "Basic $env:AtlassianPowerKit_AtlassianAPIAuthString"
+        'X-Atlassian-Token' = 'no-check'
+    }
+
+    # File preparation
+    $FileName = [System.IO.Path]::GetFileName($ATTACHMENT_FILE_PATH)
+    $Boundary = [System.Guid]::NewGuid().ToString()
+    $FileContent = [System.IO.File]::ReadAllBytes($ATTACHMENT_FILE_PATH)
+
+    # Construct multipart form-data
+    $Body = @(
+        "--$Boundary"
+        "Content-Disposition: form-data; name=`"file`"; filename=`"$FileName`""
+        'Content-Type: application/pdf'
+        ''
+        ([System.Text.Encoding]::UTF8.GetString($FileContent))
+        "--$Boundary--"
+    ) -join "`r`n"
+
+    try {
+        # POST the attachment
+        $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_V1_ATTACHMENTS_ENDPOINT `
+            -Headers $REQUEST_HEADERS `
+            -Method Post `
+            -ContentType "multipart/form-data; boundary=$Boundary" `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($Body))
+
+        # Output results
+        Write-Debug 'Attachment uploaded successfully.'
+        Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
+        return $REST_RESULTS | ConvertTo-Json
+    } catch {
+        # Handle exceptions
+        Write-Error "Failed to upload attachment: $($_.Exception.Message)"
+        if ($_.Exception.Response) {
+            Write-Error "Response Status Code: $($_.Exception.Response.StatusCode)"
+            Write-Error "Response Status Description: $($_.Exception.Response.StatusDescription)"
+        }
+    }
+}
+
+
 
 # Function to set confluence space properties by space ID
 function Set-ConfluenceSpacePropertyByID {
@@ -426,89 +521,13 @@ function Set-ConfluenceSpacePropertyByID {
         $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_SPACE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -ContentType 'application/json' -Body $CONFLUENCE_SPACE_PROPERTIES
         Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
     $REST_RESULTS
 }
 
-## INPROGRESS
-# Function set Confluence page content using a storage format file and page ID
-# function Set-ConfluencePageContent {
-#     param (
-#         [Parameter(Mandatory = $true)]
-#         [string]$CONFLUENCE_SPACE_KEY,
-#         [Parameter(Mandatory = $true)]
-#         [int64]$CONFLUENCE_PAGE_ID,
-#         [Parameter(Mandatory = $false)]
-#         [string]$CONFLUENCE_PAGE_STORAGE_FILE
-#     )
-#     $MyFunctionName = (Get-PSCallStack)[0].FunctionName
-#     $VERSION_MESSAGE = "Updated via AtlassianPowerKit $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-#     Get-ChildItem -Path . -Recurse -Filter 'Naive-ConflunceStorageValidator.psd1' | Import-Module -Force
-#     $CONFLUENCE_PAGE_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$($CONFLUENCE_PAGE_ID)"
-#     if ($CONFLUENCE_PAGE_STORAGE_FILE) {
-#         Write-Debug "$MyFunctionName- Using file: $CONFLUENCE_PAGE_STORAGE_FILE to update page ID: $CONFLUENCE_PAGE_ID...ignoring -CONFLUENCE_PAGE_STORAGE_FILE_CONTENT if it was provided..."
-#     }
-#     else {
-#         Write-Error 'You must provide either a file path to a storage format file or the content of the storage format file to update the page with parameter -CONFLUENCE_PAGE_STORAGE_FILE or -CONFLUENCE_PAGE_STORAGE_FILE_CONTENT'
-#     }
-#     Write-Debug "$MyFunctionName Getting existing page title and version number..."
-#     $REST_RESULTS = Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
-#     #$REST_RESULTS | ConvertTo-Json -Depth 40 | Write-Debug
-#     $CONFLUENCE_PAGE_TITLE = $REST_RESULTS.title
-#     $CURRENT_VERSION = $REST_RESULTS.version.number
-#     $CLEANED_FILE_CONTENT = Get-Content -Path $CONFLUENCE_PAGE_STORAGE_FILE -Raw -Encoding UTF8
-#     #Write-Debug "Making backup of current page ID: $CONFLUENCE_PAGE_ID..."
-#     # Remove pretty formatting, whitepassed, and newlines
-#     function Get-ConfluenceStoragePayload {
-#         param (
-#             [Parameter(Mandatory = $true)]
-#             [string]$CleanedXmlContent,
-#             [Parameter(Mandatory = $true)]
-#             [string]$Title,
-#             [Parameter(Mandatory = $true)]
-#             [int]$Version,
-#             [Parameter(Mandatory = $true)]
-#             [int64]$PageId
-#         )
-
-#         $body = @{
-#             representation = 'storage'
-#             value          = $CleanedXmlContent
-#         }
-
-#         $payload = @{
-#             id      = $PageId
-#             title   = $Title
-#             version = @{
-#                 number  = $Version
-#                 message = $VERSION_MESSAGE
-#             }
-#             body    = @{
-#                 storage = $body
-#             }
-#             status  = 'current'
-#         }
-
-#         return $payload | ConvertTo-Json -Depth 10 -Compress
-#     }
-#     $NEW_VERSION = $CURRENT_VERSION + 1
-#     Write-Debug "$MyFunctionName - Page Payload: $PAGE_PAYLOAD"
-#     try {
-#         #Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
-#         Invoke-RestMethod -Uri $CONFLUENCE_PAGE_ENDPOINT -Method Put -ContentType 'application/json' -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Body $(Get-ConfluenceStoragePayload -CleanedXmlContent $CLEANED_FILE_CONTENT -Title $CONFLUENCE_PAGE_TITLE -Version $NEW_VERSION -PageId $CONFLUENCE_PAGE_ID)
-#     }
-#     catch {
-#         Write-Debug $(Prepare-ConfluenceStoragePayload -CleanedXmlContent $CLEANED_FILE_CONTENT -Title $CONFLUENCE_PAGE_TITLE -Version $NEW_VERSION -PageId $CONFLUENCE_PAGE_ID)
-#         Write-Debug "$MyFunctionName - StatusCode: $($_.Exception.Response.StatusCode.value__)"
-#         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
-#         Write-Error "Error updating field: $($_.Exception.Message)"
-#     }
-# }
-# Function to take a CONFLUENCE_PAGE_ID, validate it is in 'YYYY (.*)' format, get a list of Child Pages, and if it doesn't already exist, create a new child page with the title 'YYYY[1-12] (.*)', move any existing child pages that title match 'YYYYMM.*' to the new child page, and then move the new child page to the top of the list
 function Set-ConfluenceYearMonthStructure {
     param (
         [Parameter(Mandatory = $true)]
@@ -524,10 +543,10 @@ function Set-ConfluenceYearMonthStructure {
         throw "Page does not exist: $CONFLUENCE_PAGE_ID"
     }
     $CONFLUENCE_PAGE_TITLE = $CONFLUENCE_PAGE.title
-    if ($CONFLUENCE_PAGE_TITLE -notmatch '^\d{4} (.*)') {
+    if ($CONFLUENCE_PAGE_TITLE -notmatch '^\d { 4 } (.*)') {
         throw "Confluence page title does not match 'YYYY (.*)' format. This function is intended to be used on pages with titles in the format 'YYYY (.*)'"
     }
-    $MATCH = $CONFLUENCE_PAGE_TITLE -match '(\d{4}) - (.*)'
+    $MATCH = $CONFLUENCE_PAGE_TITLE -match '(\d { 4 }) - (.*)'
     $CONFLUENCE_PAGE_YEAR = $MATCH[1]
     $CONFLUENCE_STRUCTURE_NAME = $MATCH[2].Trim()
 
@@ -546,8 +565,7 @@ function Set-ConfluenceYearMonthStructure {
             $CONFLUENCE_PAGE_MONTH_PAGE = New-ConfluencePage -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -CONFLUENCE_PAGE_TITLE $CONFLUENCE_PAGE_MONTH_TITLE
             # Copy content from parent page
             Set-ConfluencePageContent -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -CONFLUENCE_PAGE_ID $CONFLUENCE_PAGE_MONTH_PAGE.id -CONFLUENCE_PAGE_STORAGE_FILE $TEMP_FILE.FullName
-        }
-        else {
+        } else {
             Write-Debug "Page already exists: $CONFLUENCE_PAGE_MONTH_TITLE"
         }
     } finally {
@@ -557,7 +575,7 @@ function Set-ConfluenceYearMonthStructure {
     $CHILD_PAGES = Get-ConfluenceChildPages -CONFLUENCE_SPACE_KEY $CONFLUENCE_SPACE_KEY -PARENT_ID $CONFLUENCE_PAGE_ID
     $CHILD_PAGES.results | ForEach-Object {
         $CHILD_PAGE_TITLE = $_.title
-        $CHILD_PAGE_TITLE_MATCH = $CHILD_PAGE_TITLE -match '(\d{4})(\d{2})(\d+.*)'
+        $CHILD_PAGE_TITLE_MATCH = $CHILD_PAGE_TITLE -match '(\d { 4 })(\d { 2 })(\d+.*)'
         if ($CHILD_PAGE_TITLE_MATCH) {
             $CHILD_PAGE_YEAR = $Matches[1]
             $CHILD_PAGE_MONTH = $Matches[2]

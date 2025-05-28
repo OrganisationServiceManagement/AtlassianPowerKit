@@ -74,11 +74,9 @@
         'Clear-AtlassianPowerKitProfileDirs',
         'Clear-AtlassianPowerKitVault',
         'Get-AtlassianPowerKitProfileList',
-        'Get-CurrentAtlassianPowerKitProfile',
+        'Get-PaginatedJSONResults',
         'Get-LevenshteinDistance',
-        'Get-PopulatedTemplate',
-        'Get-RequisitePowerKitModules',
-        'Register-AtlassianPowerKitProfile',
+        'Register-AtlassianPowerKitProfileInVault',
         'Set-AtlassianPowerKitProfile',
         'Remove-AtlasianPowerKitProfile',
         'Unlock-Vault'

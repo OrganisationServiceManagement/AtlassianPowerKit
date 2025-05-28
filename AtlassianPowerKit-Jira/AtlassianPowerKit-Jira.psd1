@@ -71,6 +71,8 @@
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
         'Add-FormsFromJQLQueryResults',
+        'Export-RestorableJiraBackupJQL',
+        'Import-JIRAIssueFromJSONBackup',
         'Clear-JiraProjectProperty',
         'Get-FormsForJiraIssue',
         'Get-JiraActiveWorkflows',
@@ -80,26 +82,36 @@
         'Get-JiraFields',
         'Get-JiraFilterResultsAsConfluenceTable',
         'Get-JiraOSMFilterList',
+        'Get-JiraFilterResults',
+        'Get-JiraCloudIssueTypeSchema',
         'Get-JiraIssue',
         'Get-JiraIssueChangeNullsFromJQL',
         'Get-JiraIssueLinks',
+        'Get-JiraStatuses',
         'Get-JiraProjectList',
         'Get-JiraProjectProperties',
         'Get-JiraProjectProperty',
-        'Get-JiraProjectIssuesTypes',
-        'Get-JiraStatuses',
+        'Get-JiraProjectWorkflowSchemes',
+        'Get-JiraProjectStatuses',
         'Get-JSMService',
         'Get-JSMServices',
         'Get-JSONFieldsWithData',
         'Get-FormsForJiraProject',
+        'Get-JIRAFieldContextList',
+        'Get-JIRAFieldContextOptionList',
+        'Reset-FormsFromJQLQueryResults',
         'Remove-FormsFromJQLQueryResults',
         'Remove-RemoteIssueLink',
         'Set-IssueLinkTypeByJQL',
         'Set-JiraIssueField',
         'Set-JiraIssueFieldForJQLQueryResults',
         'Set-JiraProjectProperty',
+        'Set-JIRARegisterRefProperty',
         'Set-AttachedFormsExternalJQLQuery',
-        'Set-AttachedFormsExternal'
+        'Set-AttachedFormsExternal',
+        'Set-JIRAFieldContextOptions',
+        'Set-OSMRelationFieldBulkSQL',
+        'Set-OSMRelationFieldIssueKey'
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.

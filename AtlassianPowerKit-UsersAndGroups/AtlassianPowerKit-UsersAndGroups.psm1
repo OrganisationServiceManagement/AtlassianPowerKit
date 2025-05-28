@@ -1,32 +1,32 @@
 <#
 .SYNOPSIS
-    Atlassian Cloud PowerShell Module - Users and Groups - for handy functions to interact with Attlassian Cloud APIs.
+Atlassian Cloud PowerShell Module - Users and Groups - for handy functions to interact with Attlassian Cloud APIs.
 
 .DESCRIPTION
-    Atlassian Cloud PowerShell Module - Users and Groups
-    - Dependencies: AtlassianPowerKit-Shared
-        - New-AtlassianAPIEndpoint
-    - Users and Groups Module Functions
-        - Get-AtlassianGroupMembers
-        - Get-AtlassianUser
-        - Show-JiraCloudJSMProjectRole
-    - To list all functions in this module, run: Get-Command -Module AtlassianPowerKit-UsersAndGroups
-    - Debug output is enabled by default. To disable, set $DisableDebug = $true before running functions.
+Atlassian Cloud PowerShell Module - Users and Groups
+- Dependencies: AtlassianPowerKit-Shared
+- New-AtlassianAPIEndpoint
+- Users and Groups Module Functions
+- Get-AtlassianGroupMembers
+- Get-AtlassianUser
+- Show-JiraCloudJSMProjectRole
+- To list all functions in this module, run: `Get-Command` -Module AtlassianPowerKit-UsersAndGroups
+- Debug output is enabled by default. To disable, set $DisableDebug = $true before running functions.
 
 .EXAMPLE
-    Get-AtlassianGroupMembers -GROUP_NAME 'jira-administrators'
+Get-AtlassianGroupMembers -GROUP_NAME 'jira-administrators'
 
-    This example gets all members of the 'jira-administrators' group.
-
-.EXAMPLE
-    Get-AtlassianUser -ACCOUNT_ID '5f7b7f7d7f7f7f7f7f7f7f7f7'
-
-    This example gets the user details for the account ID '5f7b7f7d7f7f7f7f7f7f7f7f7'.
+This example gets all members of the 'jira-administrators' group.
 
 .EXAMPLE
-    Show-JiraCloudJSMProjectRole -JiraCloudJSMProjectKey 'OSM'
+Get-AtlassianUser -ACCOUNT_ID '5f7b7f7d7f7f7f7f7f7f7f7f7'
 
-    This example gets all roles for the Jira Service Management (JSM) project with the key 'OSM'.
+This example gets the user details for the account ID '5f7b7f7d7f7f7f7f7f7f7f7f7'.
+
+.EXAMPLE
+Show-JiraCloudJSMProjectRole -JiraCloudJSMProjectKey 'OSM'
+
+This example gets all roles for the Jira Service Management (JSM) project with the key 'OSM'.
 
 
 .LINK
@@ -45,8 +45,7 @@ function Get-AtlassianGroupMembersBulk {
         $MEMBER_ENTRY_ARRAY = Get-AtlassianGroupMembers -GROUP_NAME $_.Key
         if ((!$MEMBER_ENTRY_ARRAY) -or $MEMBER_ENTRY_ARRAY.Count -eq 0) {
             Write-Output "No members found in group $($_.Key)"
-        }
-        else {
+        } else {
             Write-Debug "MEMBER_ENTRY_ARRAY TYPE = $($MEMBER_ENTRY_ARRAY.getType()), COUNT = $($MEMBER_ENTRY_ARRAY.Count)"
             $MEMBERS_LIST.add($_.Key, $MEMBER_ENTRY_ARRAY)
         }
@@ -85,8 +84,7 @@ function Get-AtlassianGroups {
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $GROUPS_ENDPOINT -Headers $GROUP_ENDPOINT_HEADERS -Method Get -ContentType 'application/json'
         #Write-Debug $REST_RESULTS.getType()
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
@@ -112,8 +110,7 @@ function Get-AtlassianGroupMembers {
     Write-Debug "Group Members Endpoint: $GROUP_MEMBERS_ENDPOINT"
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $GROUP_MEMBERS_ENDPOINT -Headers $HEADERS -Method Get -ContentType 'application/json'
-    }
-    catch {
+    } catch {
         # If rate limiting,  sleep for 20 seconds then retry
         if ($_.Exception.Response.StatusCode.value__ -eq 429) {
             Write-Output 'Rate limited. Sleeping for 20 seconds then retrying.'
@@ -129,8 +126,7 @@ function Get-AtlassianGroupMembers {
     # Build an array of hashtables with the values, handle null values and no members
     if ($REST_RESULTS.total -eq 0) {
         Write-Output "No members found in group $GROUP_NAME"
-    }
-    else {
+    } else {
         Write-Debug "REST_RESULTS TYPE = $($REST_RESULTS.getType())"
         Write-Debug "REST_RESULTS COUNT = $($REST_RESULTS.Count)"
         # Build an array of hashtables with the values handle null values
@@ -155,8 +151,7 @@ function Get-AllAtlassianUsers {
     Write-Debug "Headers: $HEADERS"
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $USERS_ENDPOINT -Headers $HEADERS -Method Get -ContentType 'application/json'
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
@@ -166,8 +161,7 @@ function Get-AllAtlassianUsers {
     # Build an array of hashtables with the values, handle null values and no members
     if ($REST_RESULTS.total -eq 0) {
         Write-Output 'No users found'
-    }
-    else {
+    } else {
         # Build an array of hashtables with the values handle null values
         $REST_RESULTS | ForEach-Object {
             $USERS_HASH_ARRAY += [PSCustomObject] @{
@@ -200,8 +194,7 @@ function Get-AtlassianUser {
         $REST_RESULTS = Invoke-RestMethod -Uri $USER_ENDPOINT -Headers $script:AtlassianAPIHeaders -Method Get -ContentType 'application/json'
         Write-Debug $REST_RESULTS.getType()
         Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
-    }
-    catch {
+    } catch {
         Write-Debug 'StatusCode:' $_.Exception.Response.StatusCode.value__
         Write-Debug 'StatusDescription:' $_.Exception.Response.StatusDescription
     }
