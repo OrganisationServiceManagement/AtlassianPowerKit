@@ -33,42 +33,9 @@ GitHub: https://github.com/markz0r/AtlassianPowerKit
 #>
 
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
-# Vault path: $env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\localstore\
-$1PASSWORD_PROFILE_URL = if ($env:OSMAtlassianProfilesVaultPath) {
-    Write-Debug "Using custom 1Password vault path for Atlassian profiles: $env:OSMAtlassianProfilesVaultPath"
-    $env:OSMAtlassianProfilesVaultPath
-} else {
-    $DEFAULT_1PASSWORD_VAULT_PATH = 'op://Employee/OSMAtlassianProfiles/notesPlain'
-    Write-Debug "Using default 1Password vault path for Atlassian profiles: $DEFAULT_1PASSWORD_VAULT_PATH"
-    $DEFAULT_1PASSWORD_VAULT_PATH
-}
 $RETRY_AFTER = 60
 $ENVAR_PREFIX = 'AtlassianPowerKit_'
 $REQUIRED_ENV_VARS = @('AtlassianAPIEndpoint', 'AtlassianAPIUserName', 'AtlassianAPIAuthString', 'PROFILE_NAME')
-
-#Example format for 1Password json: 
-#{
-#    "AtlassianProfile1": {    
-#        "OSMAtlassianEndpoint": "example.atlassian.net",
-#        "OSMAtlassianUsername": "example@example.com",
-#        "OSMAtlassianAPIKey": "your_api_key"
-#    }  
-#    "AtlassianProfile2": {
-
-# Function to ensure 1password CLI is installed and signed in
-function Test-1PasswordCLI {
-    if (-not (Get-Command op -ErrorAction SilentlyContinue)) {
-        Write-Warning '1Password CLI (op) is not installed or not in PATH. Please install it from https://developer.1password.com/docs/cli/get-started/installation'
-        return $false
-    }
-    try {
-        op whoami | Write-Debug
-        return $true
-    } catch {
-        Write-Warning "1Password CLI is not signed in. Please sign in using 'op signin'."
-        return $false
-    }
-}
 
 function Clear-AtlassianPowerKitProfile {
     # Clear all environment variables starting with AtlassianPowerKit_
@@ -188,78 +155,8 @@ function Get-PaginatedJSONResults {
     return $RESULTS_ARRAY | ConvertTo-Json -Depth 100 -Compress
 }
 
-function Get-AtlassianPowerKitProfileList {
-    Write-Debug 'Skipping..'
-
-    #$vaultPath = if ($env:OSMAtlassianProfilesVaultPath) {
-    #    $env:OSMAtlassianProfilesVaultPath
-    #} else {
-    #    $DEFAULT_1PASSWORD_VAULT_PATH
-    #}
-
-    #Write-Debug "Getting Atlassian profiles from vault path: $vaultPath"
-    ## Esnure 1password is signed in
-    #try {
-    #    if (-not (Get-Command op -ErrorAction SilentlyContinue)) {
-    #        Write-Warning '1Password CLI (op) is not installed or not in PATH. Please install it from https://developer.1password.com/docs/cli/get-started/installation'
-    #        return @()
-    #    }
-    #    & op whoami | Out-Null
-    #} catch {
-    #    Write-Warning "1Password CLI is not signed in. Please sign in using 'op signin'."
-    #    return @()
-    #}
-
-    #try {
-    #    # Test if the 1Password item exists
-    #    $profileJson = op read $vaultPath -ErrorAction Continue
-    #    if ($profileJson) {
-    #        $profileMap = $profileJson | ConvertFrom-Json -ErrorAction Stop
-    #        $profileList = $profileMap.PSObject.Properties.Name
-    #    } else {
-    #        Write-Debug "No profiles found in 1Password at $vaultPath... create a new profile."
-    #        New-AtlassianPowerKitProfile
-    #        <# Action when all if and elseif conditions are false #>
-
-    #    }
-    #} catch {
-    #    Write-Warning "❌ Failed to read or parse profiles from 1Password: $_"
-    #    Write-Warning "Running 'New-AtlassianPowerKitProfile' to create a new profile."
-    #    return @()
-    #}
-
-    #Write-Debug "Found profiles: $($profileList -join ', ')"
-    #return $profileList
-}
-
-function Get-LevenshteinDistance {
-    param (
-        [string]$s,
-        [string]$t
-    )
-
-    if ($s.Length -eq 0) { return $t.Length }
-    if ($t.Length -eq 0) { return $s.Length }
-
-    $d = @()
-    for ($i = 0; $i -le $s.Length; $i++) {
-        $d += , @(0..$t.Length)
-    }
-
-    for ($i = 0; $i -le $s.Length; $i++) { $d[$i][0] = $i }
-    for ($j = 0; $j -le $t.Length; $j++) { $d[0][$j] = $j }
-
-    for ($i = 1; $i -le $s.Length; $i++) {
-        for ($j = 1; $j -le $t.Length; $j++) {
-            $cost = if ($s[$i - 1] -eq $t[$j - 1]) { 0 } else { 1 }
-            $d[$i][$j] = [math]::Min([math]::Min($d[$i - 1][$j] + 1, $d[$i][$j - 1] + 1), $d[$i - 1][$j - 1] + $cost)
-        }
-    }
-
-    return $d[$s.Length][$t.Length]
-}
 # Function to set the Atlassian Cloud API headers
-function Test-VaultProfileLoaded {
+function {
     # Check if all of the $REQUIRED_ENV_VARS are set
     $PROFILE_LOADED = $true
     foreach ($envVar in $REQUIRED_ENV_VARS) {
@@ -304,35 +201,22 @@ function Set-AtlassianPowerKitProfile {
     #$OSMprofile = $null
     #$runningInDocker = Test-Path -Path '/.dockerenv' -or $env:IN_DOCKER
 
-    ## --- OPTION 1: Docker ---
-    #if ($runningInDocker -and $env:AtlassianPowerKit_PROFILE_NAME) {
-    #    try {
-    #        $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
-    #        $OSMprofile = $profileMap.$OSMProfileName | ConvertTo-Json -ErrorAction Stop
-    #    } catch {
-    #        throw "Invalid JSON in OSMAtlassianProfiles env var: $_"
-    #    }
-    #    if (-not $OSMprofile) {
-    #        throw "Profile '$OSMProfileName' not found in Docker env OSMAtlassianProfiles."
-    #    }
-    #}
+    # --- OPTION 1: Docker ---
+    if ($runningInDocker -and $env:AtlassianPowerKit_PROFILE_NAME) {
+       try {
+           $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
+           $OSMprofile = $profileMap.$OSMProfileName | ConvertTo-Json -ErrorAction Stop
+       } catch {
+           throw "Invalid JSON in OSMAtlassianProfiles env var: $_"
+       }
+       if (-not $OSMprofile) {
+           throw "Profile '$OSMProfileName' not found in Docker env OSMAtlassianProfiles."
+       }
+    }
 
-    ## --- OPTION 2: Host with OSMAtlassianProfiles env ---
-    #elseif ($env:OSMAtlassianProfiles) {
-    #    try {
-    #        $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
-    #        $OSMprofile = $profileMap.$OSMProfileName | ConvertTo-Json -ErrorAction Stop
-    #    } catch {
-    #        throw "Invalid JSON in OSMAtlassianProfiles env var: $_"
-    #    }
-    #    if (-not $OSMprofile) {
-    #        throw "Profile '$OSMProfileName' not found in host OSMAtlassianProfiles env."
-    #    }
-    #}
-
-    ## --- OPTION 3: Read from user ---
+    ## --- OPTION 2: Read from user ---
     #else {
-    if (-not $env:AtlassianPowerKit_PROFILE_NAME) {
+    elseif (-not $env:AtlassianPowerKit_PROFILE_NAME) {
         $OSMProfileName = Read-Host 'Enter OSM Profile Name'
         $OSMProfileName = $OSMProfileName.Trim().ToLower()
         $env:AtlassianPowerKit_PROFILE_NAME = $OSMProfileName
@@ -357,13 +241,14 @@ function Set-AtlassianPowerKitProfile {
     Write-Debug "Setting Atlassian PowerKit profile environment variables for $OSMProfileName..."
     $env:AtlassianPowerKit_AtlassianAPIHeaders = Set-AtlassianAPIHeaders
     $env:AtlassianPowerKit_CloudID = $(Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/_edge/tenant_info").cloudId
+    else {
+      Write-Debug "Set-AtlassianPowerKitProfile - failed"
+    }
     Return Get-Item -Path "env:$ENVAR_PREFIX*"
 }
 
 function New-AtlassianPowerKitProfile {
     param (
-        [Parameter(Mandatory = $false)]
-        [string]$opEntry = 'OSMAtlassianProfiles',
         [Parameter(Mandatory = $true)]
         [string]$OSMProfileName,
         [Parameter(Mandatory = $true)]
@@ -389,27 +274,12 @@ function New-AtlassianPowerKitProfile {
     try {
         $cloudId = $(Invoke-RestMethod -Uri "https://$endpoint/_edge/tenant_info").cloudId
         $env:AtlassianPowerKit_CloudID = $cloudId
-        Test-AtlassianPowerKitProfile | Out-Null
-        Write-Host "`n✅ Profile connection test succeeded."
+        Test-AtlassianPowerKitProfile | Write-Debug
+        Write-Debug "`n✅ Profile connection test succeeded."
     } catch {
         Write-Warning "`n❌ Connection test failed: $_"
         return
     }
-
-    try {
-        $existingJson = op read "$1PASSWORD_PROFILE_URL" -ErrorAction Continue
-        $profileMap = $existingJson | ConvertFrom-Json -ErrorAction Continue
-        if ($profileMap.$profileName) {
-            $overwrite = Read-Host "Profile '$profileName' already exists. Overwrite? (Y/N)"
-            if ($overwrite -ne 'Y') {
-                Write-Host '❌ Aborted.'
-                return
-            }
-        }
-    } catch {
-        Write-Debug "🔐 1Password item '$1PASSWORD_PROFILE_URL' does not exist. Creating new profile store."
-    }
-    
     # Add/overwrite profile entry
     $profileMap = @{}
     $profileMap.$profileName = @{
@@ -443,106 +313,100 @@ function New-AtlassianPowerKitProfile {
     $RAW_JSON = op read $1PASSWORD_PROFILE_URL
     Return $RAW_JSON
 }
-function Edit-AtlassianPowerKitProfile {
+
+function Set-AtlassianAPIHeaders {
+    # check if there is a profile loaded
+    if (!$(Test-VaultProfileLoaded)) {
+        Write-Debug "$($MyInvocation.InvocationName) failed. Profile not loaded. Exiting..."
+        throw "$($MyInvocation.InvocationName) failed. Profile not loaded. Exiting..."
+    } else {
+        $HEADERS = @{
+            Authorization = "Basic $($env:AtlassianPowerKit_AtlassianAPIAuthString)"
+            Accept        = 'application/json'
+        }
+        # Add atlassian headers to the profile data
+        $API_HEADERS = $HEADERS | ConvertTo-Json -Compress       
+    }
+    Return $API_HEADERS
+}
+
+function Set-AtlassianPowerKitProfile {
     param (
         [Parameter(Mandatory = $false)]
-        [string]$ProfileName,
-        [Parameter(Mandatory = $false)]
-        [string]$opEntry = 'OSMAtlassianProfiles'
+        [string]$ProfileName
     )
 
-    # Load profiles
-    try {
-        $rawJson = op read "op://employee/$opEntry/notesPlain"
-        $profileMap = $rawJson | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        throw "❌ Failed to read or parse 1Password item '$opEntry'."
-    }
+    $OSMprofile = $null
+    $runningInDocker = Test-Path -Path '/.dockerenv' -or $env:IN_DOCKER
 
-    # Default selection logic
-    if (-not $ProfileName) {
-        $keys = $profileMap.PSObject.Properties.Name
-        if ($keys.Count -eq 1) {
-            $ProfileName = $keys[0]
-            Write-Host "ℹ️ Defaulting to only available profile: '$ProfileName'"
-        } elseif ($keys.Count -gt 1) {
-            Write-Host 'Available profiles:'
-            $keys | ForEach-Object { Write-Host "  - $_" }
-            $ProfileName = Read-Host 'Enter the profile name to edit'
-        } else {
-            throw "❌ No profiles found in $opEntry."
+    # --- OPTION 1: Docker env ---
+    if ($runningInDocker -and $env:OSMAtlassianProfiles) {
+        try {
+            $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            throw '❌ Invalid JSON in OSMAtlassianProfiles environment variable.'
+        }
+
+        if (-not $ProfileName) {
+            $keys = $profileMap.PSObject.Properties.Name
+            if ($keys.Count -eq 1) {
+                $ProfileName = $keys[0]
+                Write-Host "ℹ️ Defaulting to only available profile: '$ProfileName'"
+            } elseif ($keys.Count -gt 1) {
+                Write-Host 'Available profiles:'
+                $keys | ForEach-Object { Write-Host "  - $_" }
+                $ProfileName = Read-Host 'Enter the profile name to load'
+            } else {
+                throw '❌ No profiles found in OSMAtlassianProfiles environment variable.'
+            }
+        }
+
+        $OSMprofile = $profileMap.$ProfileName
+        if (-not $OSMprofile) {
+            throw "❌ Profile '$ProfileName' not found in Docker OSMAtlassianProfiles."
         }
     }
 
-    if (-not $profileMap.ContainsKey($ProfileName)) {
-        throw "❌ Profile '$ProfileName' not found."
-    }
-
-    $OSMProfileData = $profileMap.$ProfileName
-
-    Write-Host "`nEditing profile '$ProfileName'..."
-    Write-Host 'Select field to update:'
-    Write-Host '1) Endpoint'
-    Write-Host '2) Username'
-    Write-Host '3) API Key'
-
-    $choice = Read-Host 'Enter 1, 2, or 3'
-    switch ($choice) {
-        '1' {
-            $newValue = Read-Host 'Enter new Atlassian Endpoint'
-            $OSMProfileData.OSMAtlassianEndpoint = $newValue
+    # --- OPTION 2: Host env ---
+    elseif ($env:OSMAtlassianProfiles) {
+        try {
+            $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            throw '❌ Invalid JSON in OSMAtlassianProfiles environment variable.'
         }
-        '2' {
-            $newValue = Read-Host 'Enter new Atlassian Username'
-            $OSMProfileData.OSMAtlassianUsername = $newValue
-        }
-        '3' {
-            $newSecure = Read-Host 'Enter new Atlassian API Key' -AsSecureString
-            $newPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($newSecure)
-            )
-            $OSMProfileData.OSMAtlassianAPIKey = $newPlain
-        }
-        default {
-            Write-Host '❌ Invalid selection. Aborting.'
-            return
-        }
-    }
 
-    # Save updated profile back
-    $profileMap.$ProfileName = $OSMProfileData
-    $tempPath = [System.IO.Path]::GetTempFileName()
-    $profileMap | ConvertTo-Json -Depth 10 | Set-Content -Path $tempPath
+        if (-not $ProfileName) {
+            $keys = $profileMap.PSObject.Properties.Name
+            if ($keys.Count -eq 1) {
+                $ProfileName = $keys[0]
+                Write-Host "ℹ️ Defaulting to only available profile: '$ProfileName'"
+            } elseif ($keys.Count -gt 1) {
+                Write-Host 'Available profiles:'
+                $keys | ForEach-Object { Write-Host "  - $_" }
+                $ProfileName = Read-Host 'Enter the profile name to load'
+            } else {
+                throw '❌ No profiles found in OSMAtlassianProfiles environment variable.'
+            }
+        }
 
-    try {
-        & op item edit "$opEntry" notesPlain="$(Get-Content $tempPath -Raw)" | Out-Null
-        Write-Host "`n✅ Profile '$ProfileName' updated successfully."
-    } finally {
-        Remove-Item $tempPath -Force
-    }
+        $OSMprofile = $profileMap.$ProfileName
+        if (-not $OSMprofile) {
+            throw "❌ Profile '$ProfileName' not found in host OSMAtlassianProfiles env."
+        }
+    } else {
+
+    # --- Apply profile values to ENV vars ---
+    $env:AtlassianPowerKit_PROFILE_NAME = $ProfileName
+    $env:AtlassianPowerKit_AtlassianAPIEndpoint = $OSMprofile.OSMAtlassianEndpoint
+    $env:AtlassianPowerKit_AtlassianAPIUserName = $OSMprofile.OSMAtlassianUsername
+    $env:AtlassianPowerKit_AtlassianAPIAuthString = $OSMprofile.OSMAtlassianAPIKey
+    $env:AtlassianPowerKit_AtlassianAPIHeaders = Set-AtlassianAPIHeaders
+    $env:AtlassianPowerKit_CloudID = $(Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/_edge/tenant_info").cloudId
+
+    Write-Host "✅ Loaded profile '$ProfileName'."
+    return Get-Item -Path "env:$ENVAR_PREFIX*"
 }
-function Export-AtlassianPowerKitProfiles {
-    param (
-        [Parameter(Mandatory = $false)]
-        [switch]$AsShellExport
-    )
-    try {
-        # Ensure 1Password CLI is installed and authenticated
-        if (-not (Get-Command op -ErrorAction SilentlyContinue)) {
-            throw '1Password CLI (op) is not installed or not in PATH. Please install it from https://1password.com/downloads/cli/'
-        }
-        op signin | Write-Debug
-        # Load profiles from 1Password
-        $1PASSWORD_JSON = op read $1PASSWORD_PROFILE_URL
-        $compactJson = $1PASSWORD_JSON | ConvertTo-Json -Depth 10 -Compress
-        if ($AsShellExport) {
-            Write-Output "export OSMAtlassianProfiles='$compactJson'"
-        }
-    } catch {
-        Write-Debug "No entry found at $1PASSWORD_PROFILE_URL. Creating new profile store."
-    }
-    return $compactJson
-}
+
 # Function to test if AtlassianPowerKit profile authenticates successfully
 function Test-AtlassianPowerKitProfile {
     Write-Debug 'Testing Atlassian Cloud PowerKit Profile...'
@@ -567,40 +431,176 @@ function Test-AtlassianPowerKitProfile {
 function Remove-AtlassianPowerKitProfile {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$ProfileName,
+
+function Set-AtlassianPowerKitProfile {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ProfileName
+    )
+
+    $OSMprofile = $null
+    $runningInDocker = Test-Path -Path '/.dockerenv' -or $env:IN_DOCKER
+
+    # --- OPTION 1: Docker ---
+    if ($runningInDocker -and $env:OSMAtlassianProfiles) {
+        try {
+            $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
+            $OSMprofile = $profileMap.$ProfileName
+        } catch {
+            throw "Invalid JSON in OSMAtlassianProfiles env var: $_"
+        }
+        if (-not $profile) {
+            throw "Profile '$ProfileName' not found in Docker env OSMAtlassianProfiles."
+        }
+    }
+
+    # --- OPTION 2: Host with OSMAtlassianProfiles env ---
+    elseif ($env:OSMAtlassianProfiles) {
+        try {
+            $profileMap = $env:OSMAtlassianProfiles | ConvertFrom-Json -ErrorAction Stop
+            $OSMprofile = $profileMap.$ProfileName
+        } catch {
+            throw "Invalid JSON in OSMAtlassianProfiles env var: $_"
+        }
+        if (-not $OSMprofile) {
+            throw "Profile '$ProfileName' not found in host OSMAtlassianProfiles env."
+        }
+    }
+
+    # --- OPTION 3: Host with 1Password fallback ---
+    else {
+        try {
+            Write-Host "🔐 Loading Atlassian profile '$ProfileName' from 1Password..."
+            $opItemJson = op read "op://OSM/AtlassianProfile_$ProfileName/json"
+            $OSMprofile = $opItemJson | ConvertFrom-Json
+        } catch {
+            Write-Warning "⚠️ 1Password item for '$ProfileName' not found."
+            $confirm = Read-Host 'Do you want to create it now in 1Password? (Y/N)'
+            if ($confirm -ne 'Y') { throw 'Cannot proceed without valid profile.' }
+
+            $endpoint = Read-Host 'Enter Atlassian Endpoint (e.g. example.atlassian.net)'
+            $username = Read-Host 'Enter Atlassian Username (email)'
+            $apiKey = Read-Host 'Enter Atlassian API Key (base64 encoded)'
+
+            $newProfile = @{
+                OSMAtlassianEndpoint = $endpoint
+                OSMAtlassianUsername = $username
+                OSMAtlassianAPIKey   = $apiKey
+            }
+
+            # Save to 1Password
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            $newProfile | ConvertTo-Json -Depth 3 | Set-Content $tempFile
+            & op item create --category 'Secure Note' --title "AtlassianProfile_$ProfileName" -InputFile $tempFile | Out-Null
+            Remove-Item $tempFile
+
+            Write-Host "✅ Profile saved to 1Password as AtlassianProfile_$ProfileName. Please re-run the command."
+            return
+        }
+    }
+
+    # --- Set ENVARS ---
+    $env:AtlassianPowerKit_PROFILE_NAME = $ProfileName
+    $env:AtlassianPowerKit_AtlassianAPIEndpoint = $profile.OSMAtlassianEndpoint
+    $env:AtlassianPowerKit_AtlassianAPIUserName = $profile.OSMAtlassianUsername
+    $env:AtlassianPowerKit_AtlassianAPIAuthString = $profile.OSMAtlassianAPIKey
+    $env:AtlassianPowerKit_AtlassianAPIHeaders = Set-AtlassianAPIHeaders
+    $env:AtlassianPowerKit_CloudID = $(Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/_edge/tenant_info").cloudId
+
+    return Get-Item -Path "env:$ENVAR_PREFIX*"
+}
+
+function New-AtlassianPowerKitProfile {
+    param (
         [Parameter(Mandatory = $false)]
         [string]$opEntry = 'OSMAtlassianProfiles'
     )
 
+    $profileName = Read-Host 'Enter a unique Profile Name'
+    $endpoint = Read-Host 'Enter Atlassian Endpoint (e.g. example.atlassian.net)'
+    $username = Read-Host 'Enter Atlassian Username (email)'
+    $apiKeySecure = Read-Host 'Enter Atlassian API Key' -AsSecureString
+
+    # Convert SecureString to plain text
+    $apiKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($apiKeySecure)
+    )
+
+    # Build temporary env for testing
+    $env:AtlassianPowerKit_PROFILE_NAME = $profileName
+    $env:AtlassianPowerKit_AtlassianAPIEndpoint = $endpoint
+    $env:AtlassianPowerKit_AtlassianAPIUserName = $username
+    $env:AtlassianPowerKit_AtlassianAPIAuthString = $apiKey
+    $env:AtlassianPowerKit_AtlassianAPIHeaders = Set-AtlassianAPIHeaders
+
     try {
-        $rawJson = op read "op://employee/$opEntry/notesPlain"
-        $profileMap = $rawJson | ConvertFrom-Json -ErrorAction Stop
+        $cloudId = $(Invoke-RestMethod -Uri "https://$endpoint/_edge/tenant_info").cloudId
+        $env:AtlassianPowerKit_CloudID = $cloudId
+        Test-AtlassianPowerKitProfile | Out-Null
+        Write-Host "`n✅ Profile connection test succeeded."
     } catch {
-        throw "❌ Failed to read 1Password item '$opEntry'."
-    }
-
-    if (-not $profileMap.ContainsKey($ProfileName)) {
-        Write-Host "⚠️ Profile '$ProfileName' not found. Nothing to remove."
+        Write-Warning "`n❌ Connection test failed: $_"
         return
     }
 
-    $confirm = Read-Host "Are you sure you want to delete profile '$ProfileName'? (Y/N)"
-    if ($confirm -ne 'Y') {
-        Write-Host '❌ Deletion aborted.'
-        return
+    try {
+        $existingJson = op read "op://OSM/$opEntry/notesPlain"
+        $profileMap = $existingJson | ConvertFrom-Json -ErrorAction Stop
+        if ($profileMap.$profileName) {
+            $overwrite = Read-Host "Profile '$profileName' already exists. Overwrite? (Y/N)"
+            if ($overwrite -ne 'Y') {
+                Write-Host '❌ Aborted.'
+                return
+            }
+        }
+    } catch {
+        Write-Host "🔐 1Password item '$opEntry' does not exist. Creating new profile store."
+        $profileMap = @{}
     }
 
-    $profileMap.Remove($ProfileName)
+    # Add/overwrite profile entry
+    $profileMap.$profileName = @{
+        OSMAtlassianEndpoint = $endpoint
+        OSMAtlassianUsername = $username
+        OSMAtlassianAPIKey   = $apiKey
+    }
 
-    # Write back updated JSON
+    # Write back to 1Password
     $tempPath = [System.IO.Path]::GetTempFileName()
     $profileMap | ConvertTo-Json -Depth 10 | Set-Content -Path $tempPath
 
     try {
-        & op item edit "$opEntry" notesPlain="$(Get-Content $tempPath -Raw)" | Out-Null
-        Write-Host "`n✅ Profile '$ProfileName' removed from '$opEntry'."
+        if ($existingJson) {
+            & op item edit "$opEntry" notesPlain="$(Get-Content $tempPath -Raw)" | Out-Null
+            Write-Host "`n✅ Updated existing 1Password item '$opEntry'."
+        } else {
+            & op item create --category 'Secure Note' --title "$opEntry" notesPlain="$(Get-Content $tempPath -Raw)" | Out-Null
+            Write-Host "`n✅ Created new 1Password item '$opEntry'."
+        }
     } finally {
-        Remove-Item $tempPath -Force
+        Remove-Item -Path $tempPath -Force
     }
+}
+
+# Function to test if AtlassianPowerKit profile authenticates successfully
+function Test-AtlassianPowerKitProfile {
+    Write-Debug 'Testing Atlassian Cloud PowerKit Profile...'
+    ##Write-Debug "API Headers: $($script:AtlassianAPIHeaders | Format-List * | Out-String)'
+    #Write-Debug "API Endpoint: $($env:AtlassianPowerKit_AtlassianAPIEndpoint) ..."
+    #Write-Debug "API Headers: $($env:AtlassianPowerKit_AtlassianAPIHeaders) ..."
+    $HEADERS = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
+    $TEST_ENDPOINT = 'https://' + $env:AtlassianPowerKit_AtlassianAPIEndpoint + '/rest/api/2/myself'
+    try {
+        #Write-Debug "Running: Invoke-RestMethod -Uri https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/2/myself -Headers $($env:AtlassianPowerKit_AtlassianAPIHeaders | ConvertFrom-Json -AsHashtable) -Method Get"
+        $REST_RESPONSE = Invoke-RestMethod -Method Get -Uri $TEST_ENDPOINT -Headers $HEADERS -StatusCodeVariable REST_STATUS
+        #Write-Debug "Results: $($REST_RESULTS | ConvertTo-Json -Depth 10) ..."
+        Write-Debug "$($MyInvocation.InvocationName) returned status code: $($REST_STATUS)"
+    } catch {
+        Write-Debug "$($MyInvocation.InvocationName) failed: with $_"
+        Write-Debug 'Rest response: '
+        $REST_RESPONSE | ConvertTo-Json -Depth 10 | Write-Debug
+        throw "$($MyInvocation.InvocationName) failed. Exiting..."
+    }
+    Return $true
 }
 

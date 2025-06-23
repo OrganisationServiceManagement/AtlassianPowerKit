@@ -18,7 +18,6 @@ AtlassianPowerKit
 AtlassianPowerKit
 # Direct invocation (after profile configured)
 AtlassianPowerKit -FunctionName "Get-JiraIssue" -FunctionParameters @{"Key"="TEST-1"} -OSMProfile "zoak"
-```
 
 ```docker
 # Windows

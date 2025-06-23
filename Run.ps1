@@ -4,7 +4,6 @@
 #Import-Module -Name Microsoft.PowerShell.SecretManagement, Microsoft.PowerShell.SecretStore -Force
 Set-Location "$env:OSM_INSTALL/AtlassianPowerKit"
 Import-Module "$env:OSM_INSTALL/AtlassianPowerKit/AtlassianPowerKit.psd1" -Force
-
 # Load Environment Variables from the host
 
 

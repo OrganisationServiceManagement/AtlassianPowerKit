@@ -259,23 +259,7 @@ function Show-AtlassianPowerKitFunctions {
     Write-Host "Invoking AtlassingPowerKit Function:  $SelectedFunctionName" -ForegroundColor Green
     return $SelectedFunctionName
 }
-#function New-AtlassianPowerKitProfile {
-#    param (
-#        [Parameter(Mandatory = $false)]
-#        [string]$PROFILE_NAME = $null
-#    )
-#    if (!$PROFILE_NAME) {
-#        $PROFILE_NAME = Read-Host -Prompt 'Enter a name for the new profile'
-#    }
-#    $PROFILE_NAME = $PROFILE_NAME.Trim().ToLower()
-#    $API_ENDPOINT = Read-Host -Prompt 'Enter the Atlassian API endpoint (e.g. https://your-domain.atlassian.net)'
-#    $API_CREDPAIR = Get-Credential -Message 'Enter your Atlassian API credentials (email and API token)'
-#    $REGISTERED_PROFILE = Register-AtlassianPowerKitProfileInVault -ProfileName $PROFILE_NAME -AtlassianAPIEndpoint $API_ENDPOINT -AtlassianAPICredentialPair $API_CREDPAIR
-#    $ENVAR_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $REGISTERED_PROFILE
-#    return $ENVAR_ARRAY
 
-#}
-## Function to list availble profiles with number references for interactive selection or 'N' to create a new profile
 function Import-AtlassianPowerKitProfile {
     param (
         [Parameter(Mandatory = $false)]
