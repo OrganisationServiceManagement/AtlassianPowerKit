@@ -70,16 +70,7 @@
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
-        'Clear-AtlassianPowerKitProfile',
-        'Clear-AtlassianPowerKitProfileDirs',
-        'Clear-AtlassianPowerKitVault',
-        'Get-AtlassianPowerKitProfileList',
-        'Get-PaginatedJSONResults',
-        'Get-LevenshteinDistance',
-        'Register-AtlassianPowerKitProfileInVault',
-        'Set-AtlassianPowerKitProfile',
-        'Remove-AtlasianPowerKitProfile',
-        'Unlock-Vault'
+        '*'
     )
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
