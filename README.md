@@ -16,7 +16,7 @@ cd .\AtlassianPowerKit; Import-Module "AtlassianPowerKit.psd1"
 # Text UI
 AtlassianPowerKit
 # Direct invocation (after profile configured)
-AtlassianPowerKit -FunctionName "Get-JiraIssue" -FunctionParameters @{"Key"="TEST-1"} -Profile "zoak"
+AtlassianPowerKit -FunctionName "Get-JiraIssue" -FunctionParameters @{"Key"="TEST-1"} -OSMProfile "zoak"
 ```
 
 ```docker
@@ -37,7 +37,7 @@ docker run -it --rm -v ${PWD}/osm_home:/mnt/osm -v "$HOME/.local/share/powershel
 
 - PowerShell 7.0 or later (Core is supported on Windows, macOS, and Linux)
 - Alternatively, you can use the Docker image to run the module:
-  - https://hub.docker.com/r/markz0r/atlassian-powerkit
+  - <https://hub.docker.com/r/markz0r/atlassian-powerkit>
   - `docker run --rm -v ${PWD}\osm_home:/mnt/osm -v "$Env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\:/root/.secretmanagement/" -it markz0r/atlassian-powerkit:latest`
 
 ## Contributing

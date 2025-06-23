@@ -259,23 +259,23 @@ function Show-AtlassianPowerKitFunctions {
     Write-Host "Invoking AtlassingPowerKit Function:  $SelectedFunctionName" -ForegroundColor Green
     return $SelectedFunctionName
 }
-function New-AtlassianPowerKitProfile {
-    param (
-        [Parameter(Mandatory = $false)]
-        [string]$PROFILE_NAME = $null
-    )
-    if (!$PROFILE_NAME) {
-        $PROFILE_NAME = Read-Host -Prompt 'Enter a name for the new profile'
-    }
-    $PROFILE_NAME = $PROFILE_NAME.Trim().ToLower()
-    $API_ENDPOINT = Read-Host -Prompt 'Enter the Atlassian API endpoint (e.g. https://your-domain.atlassian.net)'
-    $API_CREDPAIR = Get-Credential -Message 'Enter your Atlassian API credentials (email and API token)'
-    $REGISTERED_PROFILE = Register-AtlassianPowerKitProfileInVault -ProfileName $PROFILE_NAME -AtlassianAPIEndpoint $API_ENDPOINT -AtlassianAPICredentialPair $API_CREDPAIR
-    $ENVAR_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $REGISTERED_PROFILE
-    return $ENVAR_ARRAY
+#function New-AtlassianPowerKitProfile {
+#    param (
+#        [Parameter(Mandatory = $false)]
+#        [string]$PROFILE_NAME = $null
+#    )
+#    if (!$PROFILE_NAME) {
+#        $PROFILE_NAME = Read-Host -Prompt 'Enter a name for the new profile'
+#    }
+#    $PROFILE_NAME = $PROFILE_NAME.Trim().ToLower()
+#    $API_ENDPOINT = Read-Host -Prompt 'Enter the Atlassian API endpoint (e.g. https://your-domain.atlassian.net)'
+#    $API_CREDPAIR = Get-Credential -Message 'Enter your Atlassian API credentials (email and API token)'
+#    $REGISTERED_PROFILE = Register-AtlassianPowerKitProfileInVault -ProfileName $PROFILE_NAME -AtlassianAPIEndpoint $API_ENDPOINT -AtlassianAPICredentialPair $API_CREDPAIR
+#    $ENVAR_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $REGISTERED_PROFILE
+#    return $ENVAR_ARRAY
 
-}
-# Function to list availble profiles with number references for interactive selection or 'N' to create a new profile
+#}
+## Function to list availble profiles with number references for interactive selection or 'N' to create a new profile
 function Import-AtlassianPowerKitProfile {
     param (
         [Parameter(Mandatory = $false)]
@@ -286,9 +286,9 @@ function Import-AtlassianPowerKitProfile {
     if ($NoVault) {
         #Write-Debug "$($MyInvocation.InvocationName) -NoVault flag set, attempting to load profile from environment variables"
         $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -NoVault
-    } elseif ($selectedProfile -ne $false) {
+    } elseif (! $selectedProfile) {
         #Write-Debug "$($MyInvocation.InvocationName) -ProfileName profided, attempting to load profile: $selectedProfile from the vault"
-        $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -ProfileName $selectedProfile
+        $ENVAR_ARRAY = Set-AtlassianPowerKitProfile -OSMProfileName $selectedProfile
         if (!$ENVAR_ARRAY -or $ENVAR_ARRAY.Count -lt 3) {
             Write-Host "Could not load profile: $selectedProfile from the vault. Requesting values to add it to vault."
             $ENVAR_ARRAY = New-AtlassianPowerKitProfile -PROFILE_NAME $selectedProfile
@@ -386,16 +386,17 @@ function AtlassianPowerKit {
             Write-Debug '-NoVault flagged, attempting to load profile from environment variables'
             $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -NoVault 
         } elseif ($OSMProfile) {
-            Write-Debug "Profile provided: $OSMProfile"
-            $ProfileName = $OSMProfile.Trim().ToLower()
-            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $ProfileName
+            $OSMProfileName = $OSMProfile.Trim().ToLower()
+            Write-Debug "Profile provided: $OSMProfileName"
+            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile -selectedProfile $OSMProfileName
+            #$PROFILE_JSON = Set-AtlassianPowerKitProfile -OSMProfileName $OSMProfile
         } else {
-            Write-Debug 'No profile provided, checking if vault has only 1 profile'
-            $PROFILE_ARRAY = Import-AtlassianPowerKitProfile
+            Write-Debug 'No profile provided.. listing what is available'
+            $PROFILE_ARRAY = Set-AtlassianPowerKitProfile
         }
         Write-Debug "Profile set to: $env:AtlassianPowerKit_PROFILE_NAME"
         $PROFILE_ARRAY | ForEach-Object {
-            Write-Output "   $_" | Out-Null
+            "   $_" | Write-Debug
         }
         if (!$FunctionName) {
             $FunctionName = Show-AtlassianPowerKitFunctions -NESTED_MODULES $NESTED_MODULES
@@ -423,7 +424,7 @@ function AtlassianPowerKit {
         # Write call stack and sub-function error messages to the debug output
         Write-Debug "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ $((Get-Item -Path $PSScriptRoot).FullName) $($MyInvocation.InvocationName) FAILED: "
         # Write full call stack to the debug output and error message to the console
-        Get-PSCallStack
+        Get-PSCallStack | Write-Debug
         Write-Debug "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ $((Get-Item -Path $PSScriptRoot).FullName) $($MyInvocation.InvocationName)"
         Write-Error $_.Exception.Message
     }
