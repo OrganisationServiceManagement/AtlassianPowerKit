@@ -21,4 +21,4 @@ The software is provided "as is" without warranty of any kind, express or implie
 
 If you use this software in your projects, please provide attribution by including the following notice:
 
-"[Project Name] uses Software by ZOAK Pty Ltd Licensed under CC BY-NC 4.0."
+"AtlassianPowerKit uses Software by ZOAK Pty Ltd Licensed under CC BY-NC 4.0."
