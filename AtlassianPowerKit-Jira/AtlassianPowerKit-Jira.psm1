@@ -137,7 +137,7 @@ function Export-RestorableJiraBackupJQL {
                 $ATTACHMENT_ID = $ATTACHMENT.id
                 $ATTACHMENT_FILENAME = $ATTACHMENT.filename
                 Write-Debug "Exporting attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ..."
-                Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/attachment/content/$ATTACHMENT_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType $Attachment.mimeType -OutFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
+                Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/attachment/content/$ATTACHMENT_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType $Attachment.mimeType -OutFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
                 Write-Debug "Exporting attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ... Done"
             }
         }
@@ -160,7 +160,7 @@ function Export-RestorableJiraBackupJQL {
                 $ATTACHMENT_ID = $ATTACHMENT.id
                 $ATTACHMENT_FILENAME = $ATTACHMENT.filename
                 Write-Debug "Exporting attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ..."
-                Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/attachment/content/$ATTACHMENT_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType $Attachment.mimeType -OutFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
+                Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/attachment/content/$ATTACHMENT_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType $Attachment.mimeType -OutFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
                 Write-Debug "Exporting attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ... Done"
             }
         }
@@ -266,15 +266,15 @@ function Import-JIRAIssueFromJSONBackup {
     # }
     # https://your-domain.atlassian.net/rest/api/3/issue/createmeta/{projectIdOrKey}/issuetypes' 
     # Write-Debug 'CREATE ISSUE METADATA: '
-    # $CREATE_ISSUE_METADATA = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/createmeta/$DEST_PROJECT_KEY/issuetypes" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    # $CREATE_ISSUE_METADATA = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/createmeta/$DEST_PROJECT_KEY/issuetypes" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     # $CREATE_ISSUE_METADATA | ConvertTo-Json -Depth 100 | Write-Debug
     # return
 
     
-    Write-Debug "POSTING ISSUE: $($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue"
+    Write-Debug "POSTING ISSUE: $($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue"
     $POST_ISSUE | ConvertTo-Json -Depth 100 -EscapeHandling Default | Write-Debug
     try {
-        $POST_REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -ContentType 'application/json' -Body $($POST_ISSUE | ConvertTo-Json -EscapeHandling Default -Depth 100)
+        $POST_REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -ContentType 'application/json' -Body $($POST_ISSUE | ConvertTo-Json -EscapeHandling Default -Depth 100)
     } catch {
         Write-Debug "Error importing issue: $ISSUE_KEY to $DEST_PROJECT_KEY as $DEST_ISSUE_TYPE"
         # Write full errordetails to terminal, ensuring $ErrorDetails returned as json is fully written to terminal and not truncated
@@ -295,13 +295,13 @@ function Import-JIRAIssueFromJSONBackup {
             $ATTACHMENT_ID = $ATTACHMENT.id
             $ATTACHMENT_FILENAME = $ATTACHMENT.filename
             Write-Debug "Importing attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ..."
-            Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$NEW_ISSUE_KEY/attachments/$ATTACHMENT_ID" -Headers $ATTACHMENT_POST_HEADERS -Method Post -ContentType $Attachment.mimeType -InFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
+            Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$NEW_ISSUE_KEY/attachments/$ATTACHMENT_ID" -Headers $ATTACHMENT_POST_HEADERS -Method Post -ContentType $Attachment.mimeType -InFile "$OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME"
             Write-Debug "Importing attachment: $OUTPUT_DIR\$ISSUE_KEY\$ATTACHMENT_FILENAME ... Done"
 
         }
     }
     # Add comment
-    Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$NEW_ISSUE_KEY/comment" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -ContentType 'application/json' -Body $POST_COMMENT_JSON
+    Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$NEW_ISSUE_KEY/comment" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -ContentType 'application/json' -Body $POST_COMMENT_JSON
 }
 
 function Get-JiraFilterResults {
@@ -311,9 +311,9 @@ function Get-JiraFilterResults {
         [Parameter(Mandatory = $false)]
         [switch]$ReturnJSONOnly
     )
-    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
 
-    $FILTER_COLUMNS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)/columns" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $FILTER_COLUMNS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)/columns" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     Write-Debug "Filter Columns: $($FILTER_COLUMNS | ConvertTo-Json -Depth 10)"
     $COLUMN_VALS = $FILTER_COLUMNS | ForEach-Object { $_.Value }
     $JSON_ISSUE_SEARCH_RESPONSE = Get-JiraCloudJQLQueryResult -JQL_STRING $FILTER_INFO.jql -RETURN_FIELDS $COLUMN_VALS | ConvertFrom-Json
@@ -344,9 +344,9 @@ function Get-JiraFilterResultsAsConfluenceTable {
         [Parameter(Mandatory = $true)]
         [string]$FILTER_ID
     )
-    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
 
-    $FILTER_COLUMNS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)/columns" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $FILTER_COLUMNS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)/columns" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $COLUMN_VALS = $FILTER_COLUMNS | ForEach-Object { $_.Value }
         
     $TABLE_HEADERS = '<tbody><tr>'
@@ -574,7 +574,7 @@ function Test-JiraIssueExists {
     )
     # Invoke-RestMethod and capture the response to $ISSUE_KEY, even if it is an error
     try {
-        $ISSUE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$($KeyOrID)?fields=null" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+        $ISSUE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$($KeyOrID)?fields=null" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     } catch {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         $ISSUE_RESPONSE = ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
@@ -595,7 +595,10 @@ function Get-JiraIssue {
         [Parameter(Mandatory = $true)]
         [string]$Key
     )
-    $ISSUE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$($Key)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    if (! $Key) {
+        $Key = Read-Host 'Enter the Jira issue key or ID to get the issue JSON'
+    }
+    $ISSUE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$($Key)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $ISSUE | ConvertTo-Json -Depth 30
 }
 
@@ -610,7 +613,7 @@ function Get-JiraIssueLinks {
         [string]$filter_link_type
     )
     try {
-        $ISSUE_LINKS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/2/issue/$($IssueKey)?fields=issuelinks" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+        $ISSUE_LINKS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/2/issue/$($IssueKey)?fields=issuelinks" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     } catch {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         Write-Error "Error updating field: $($_.Exception.Message)"
@@ -688,7 +691,7 @@ function Get-JiraCloudJQLQueryResult {
     # Get total number of results for the JQL query
     $WARNING_LIMIT = 2000
     Write-Debug "Validating JQL query: $JQL_STRING ..."
-    $VALIDATE_QUERY = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/search/approximate-count" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body ($POST_BODY | ConvertTo-Json) -ContentType 'application/json' -StatusCodeVariable 'scv'
+    $VALIDATE_QUERY = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/search/approximate-count" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body ($POST_BODY | ConvertTo-Json) -ContentType 'application/json' -StatusCodeVariable 'scv'
     Write-Debug "Total results for JQL query: $VALIDATE_QUERY"
     $DYN_LIMIT = $VALIDATE_QUERY.count
     if ($DYN_LIMIT -eq 0) {
@@ -725,7 +728,7 @@ function Get-JiraCloudJQLQueryResult {
             if ($NEXT_PAGE) {
                 $POST_BODY.nextPageToken = $NEXT_PAGE
             }
-            $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/search/jql" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body $($POST_BODY | ConvertTo-Json -Depth 10) -ContentType 'application/json' -StatusCodeVariable 'scv'
+            $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/search/jql" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body $($POST_BODY | ConvertTo-Json -Depth 10) -ContentType 'application/json' -StatusCodeVariable 'scv'
             Write-Debug "REST_RESPONSE received: $($REST_RESPONSE.GetType()), StatusCode: $scv"
             #Write-Debug "REST_RESPONSE: $($REST_RESPONSE | ConvertTo-Json -Depth 10)"
             if ($scv -eq 429) {
@@ -752,7 +755,7 @@ function Get-JiraCloudJQLQueryResult {
     } catch {
         Write-Debug 'Error getting jql results with Request details:'
         Write-Debug '##############################################'
-        Write-Debug "-Uri https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/search/jql -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body $($POST_BODY | ConvertTo-Json -Depth 10) "
+        Write-Debug "-Uri https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/search/jql -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Post -Body $($POST_BODY | ConvertTo-Json -Depth 10) "
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         Write-Error "$($MyInvocation.MyCommand.Name): Error getting jql : $($_.Exception.Message)"
         Write-Debug '##############################################'
@@ -816,7 +819,7 @@ function Get-JiraIssueChangeLog {
         [Parameter(Mandatory = $true)]
         [string]$Key
     )
-    $CHANGE_LOG = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$Key/changelog" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $CHANGE_LOG = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$Key/changelog" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     #Write-Debug "Change log for issue: $Key"
     #Write-Debug $($CHANGE_LOG | ConvertTo-Json -Depth 10)
     return $CHANGE_LOG
@@ -848,7 +851,7 @@ function Set-JiraIssueField {
         }
     }
     #$FIELD_PAYLOAD = $FIELD_PAYLOAD | ConvertTo-Json -Depth 10
-    Write-Debug "### UPDATING ISSUE: https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$ISSUE_KEY"
+    Write-Debug "### UPDATING ISSUE: https://$($env:AtlassianPowerKit_ENDPOINT)/browse/$ISSUE_KEY"
     Write-Debug "Field Type: $FIELD_TYPE"
     switch -regex ($FIELD_TYPE) {
         'custom' { $FIELD_PAYLOAD = $(Set-MutliSelectPayload) }
@@ -856,9 +859,9 @@ function Set-JiraIssueField {
         'single-select' { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = @{value = "$New_Value" } } } }
         'text' { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = "$New_Value" } } }
         'null' { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = null } } }
-        Default { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = "$New_Value" } } }
+        default { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = "$New_Value" } } }
     }
-    $REQUEST_URL = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/2/issue/$($ISSUE_KEY)" 
+    $REQUEST_URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/2/issue/$($ISSUE_KEY)" 
     # Run the REST API call to update the field with verbose debug output
     Write-Debug "Field Payload: $($FIELD_PAYLOAD | ConvertTo-Json -Depth 10)"
     #Write-Debug "Trying: Invoke-RestMethod -Uri $REQUEST_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $FIELD_PAYLOAD -ContentType 'application/json'"
@@ -909,12 +912,14 @@ function Set-JiraIssueFieldForJQLQueryResults {
         # [Parameter(Mandatory = $true)]
         # [string]$JSON_TEMPLATE_FILE
     )
-    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING
-    $ISSUES.issues | ForEach-Object {
-        $ISSUE = $_
-        $ISSUE_KEY = $ISSUE.key
-        $ISSUE_SUMMARY = $ISSUE.fields.summary
-        Write-Debug "Updating fields for issue: $($_.key - $ISSUE_SUMMARY)"
+    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -RETURN_FIELDS @('id', 'key', 'summary') -ReturnJSONOnly
+    $ISSUES = $ISSUES | ConvertFrom-Json -Depth 25
+    Write-Debug "Converted issue results has: $($ISSUES.Count) issues"
+    $ISSUES | ForEach-Object {
+        Write-Debug 'Processing issue: '
+        $_ | Write-Debug
+        $ISSUE_KEY = $_.key
+        Write-Debug "Updating fields for issue: $ISSUE_KEY"
         if (! $DryRun) {
             Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE -FIELD_TYPE $FIELD_TYPE
         } else {
@@ -932,7 +937,7 @@ function Set-OSMPortalLinkForJQLQueryResults {
         [Parameter(Mandatory = $false)]
         [string]$FIELD_TYPE = 'text',
         [Parameter(Mandatory = $false)]
-        [string[]]$NEW_VALUE = @('<p><a href="https://auda.atlassian.net/servicedesk/customer/portal/7/GRCOSM-2125" title="smart-link" class="external-link" rel="nofollow noreferrer">https://auda.atlassian.net/servicedesk/customer/portal/7/', '</a> </p></customfieldvalue>'),
+        [string[]]$NEW_VALUE = @(''),
         [Parameter(Mandatory = $false)]
         [Switch]$DryRun = $false
     )
@@ -946,6 +951,23 @@ function Set-OSMPortalLinkForJQLQueryResults {
         } else {
             Write-Debug "Dry Run: Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref $FIELD_REF -New_Value $NEW_VALUE"
         }
+    }
+}
+
+function Set-OSMEntityDueDate {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$GRCOSM_ENTITY_FILTER,
+        [Parameter(Mandatory = $true)]
+        [datetime]$DUE_DATE
+    )
+    $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -RETURN_FIELDS @('key', 'summary')
+    $ISSUES = $ISSUES | ConvertFrom-Json
+    $ISSUES | ForEach-Object {
+        $ISSUE_KEY = $_.key
+        $ISSUE_SUMMARY = $_.fields.summary
+        Write-Debug "Updating due date for issue: $ISSUE_KEY - $ISSUE_SUMMARY"
+        Set-JiraIssueField -ISSUE_KEY $ISSUE_KEY -Field_Ref 'duedate' -New_Value $DUE_DATE.ToString('yyyy-MM-dd') -FIELD_TYPE 'text'
     }
 }
 
@@ -990,9 +1012,9 @@ function Set-OSMRelationFieldIssueKey {
         $LINK_TYPE_NAME = $textInfo.ToTitleCase($LINK_TYPE_NAME.ToLower())
         Write-Debug "Link Type: $LINK_TYPE_NAME, Linked Issue: $LINKED_ISSUE"
         if ($LINKED_ISSUES_HASHTABLE.ContainsKey($LINK_TYPE_NAME)) {
-            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] += @("https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$LINKED_ISSUE")
+            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] += @("https://$($env:AtlassianPowerKit_ENDPOINT)/browse/$LINKED_ISSUE")
         } else {
-            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] = @("https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$LINKED_ISSUE")
+            $LINKED_ISSUES_HASHTABLE[$LINK_TYPE_NAME] = @("https://$($env:AtlassianPowerKit_ENDPOINT)/browse/$LINKED_ISSUE")
         }
     }
     # Output the linked issues hashtable sorted by link type and convert to JSON
@@ -1021,7 +1043,7 @@ function Get-JiraIssueChangeNulls {
     if (! $CHANGE_LOG.isLast) {
         Write-Warning 'There are more than 100 changes for this issue. This function only returns the first 100 changes.'
     }
-    $ISSUE_LINK = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/browse/$Key"
+    $ISSUE_LINK = "https://$($env:AtlassianPowerKit_ENDPOINT)/browse/$Key"
     #Write-Debug $($CHANGE_LOG | ConvertTo-Json -Depth 10)
     $NULL_CHANGE_ITEMS = @()
     $FINAL_ITEMS = @()
@@ -1077,7 +1099,7 @@ function Get-JiraStatuses {
         [Parameter(Mandatory = $false)]
         [switch]$GetDuplicates = $false
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/status" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/status" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     function Get-DuplicateJiraStatusNames {
         param (
             [Parameter(Mandatory = $true)]
@@ -1160,11 +1182,11 @@ function Get-JiraProjectWorkflowSchemes {
         } else {
             Write-Error "Project ID not found for project key: $PROJECT_KEY"
         }
-        $URL = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/workflowscheme/project?projectId=$PROJECT_ID"
+        $URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/workflowscheme/project?projectId=$PROJECT_ID"
     } else {
         Write-Debug 'No project key passed, getting all project workflow schemes...disables'
         # $OUTPUT_FILE = "$OUTPUT_DIR\$env:AtlassianPowerKit_PROFILE_NAME-ALL-JIRAProjectWorkflowSchemes-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
-        # $URL = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/workflowscheme"
+        # $URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/workflowscheme"
     }
     $WORKFLOW_SCHEMES = Invoke-RestMethod -Uri $URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $WORKFLOW_SCHEMES | ConvertTo-Json -Depth 100 | Out-File -FilePath $OUTPUT_FILE
@@ -1176,7 +1198,7 @@ function Get-JiraProjectWorkflowSchemes {
 
 # Get-JiraActiveWorkflows
 function Get-JiraActiveWorkflows {
-    $WORKFLOW_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/workflow/search?isActive=true&expand=statuses"
+    $WORKFLOW_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/workflow/search?isActive=true&expand=statuses"
     Write-Debug "Workflow Endpoint: $WORKFLOW_ENDPOINT"
     Invoke-RestMethod -Uri $WORKFLOW_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json' -Verbose -Debug
     $WORKFLOWS = Invoke-RestMethod -Uri $WORKFLOW_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json' -Verbose -Debug
@@ -1233,7 +1255,7 @@ function Get-JiraFields {
         [Parameter(Mandatory = $false)]
         [switch]$WriteOutput = $false
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/field" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/field" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     if ($WriteOutput) {
         $OUTPUT_FILE = "$env:OSM_HOME\$env:AtlassianPowerKit_PROFILE_NAME\JIRA\$env:AtlassianPowerKit_PROFILE_NAME-JIRAFields-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
         if (-not (Test-Path $OUTPUT_FILE)) {
@@ -1271,7 +1293,7 @@ function Get-DuplicateJiraFieldNames {
 # Function to list all users for a JSM cloud project
 function Get-JSMServices {
     # https://community.atlassian.com/t5/Jira-Work-Management-Articles/How-to-automatically-populate-service-related-information-stored/ba-p/2240423
-    $JSM_SERVICES_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/service-registry-api/service?query="
+    $JSM_SERVICES_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/service-registry-api/service?query="
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $JSM_SERVICES_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
         Write-Debug $REST_RESULTS.getType()
@@ -1290,7 +1312,7 @@ function Get-JSMService {
         [string]$ServiceName
     )
     # https://community.atlassian.com/t5/Jira-Work-Management-Articles/How-to-automatically-populate-service-related-information-stored/ba-p/2240423
-    $JSM_SERVICES_ENDPOINT = [uri]::EscapeUriString("https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/service-registry-api/service?query=$ServiceName")
+    $JSM_SERVICES_ENDPOINT = [uri]::EscapeUriString("https://$($env:AtlassianPowerKit_ENDPOINT)/rest/service-registry-api/service?query=$ServiceName")
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $JSM_SERVICES_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
         Write-Debug $REST_RESULTS.getType()
@@ -1308,7 +1330,7 @@ function Get-JiraProjectByKey {
     )
     # Check for $($env:OSM_HOME)\$PROFILE_NAME\$PROFILE_NAME-ProjectList-*.json" that was written in past 12 hours and use it to get the project ID, else run Get-JiraProjectList, then try again
     $PROJECT_LIST_FILE = Get-ChildItem -Path "$($env:OSM_HOME)\$env:AtlassianPowerKit_PROFILE_NAME\JIRA" -Filter "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-*.json" | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
-    While (-not $PROJECT_LIST_FILE) {
+    while (-not $PROJECT_LIST_FILE) {
         Write-Debug 'No Project List file found, running Get-JiraProjectList...'
         Get-JiraProjectList | Out-Null
         $PROJECT_LIST_FILE = Get-ChildItem -Path "$($env:OSM_HOME)\$env:AtlassianPowerKit_PROFILE_NAME\JIRA" -Filter "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-*.json" | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
@@ -1324,7 +1346,7 @@ function Get-JiraProjectList {
     )
     $FILENAME = "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     $REST_RESULTS = @()
-    $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/search" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/search" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     $REST_RESULTS += $REST_RESPONSE.values
     Write-Debug 'Adding first page of projects to results...'
     while (!$REST_RESPONSE.isLast) {
@@ -1341,7 +1363,7 @@ function Get-JiraProjectProperties {
         [Parameter(Mandatory = $true)]
         [string]$PROJECT_KEY
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/$PROJECT_KEY/properties" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/$PROJECT_KEY/properties" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     $REST_RESULTS | ConvertTo-Json -Depth 100 | Out-File -FilePath "$env:OSM_HOME\$env:AtlassianPowerKit_PROFILE_NAME\JIRA\$env:AtlassianPowerKit_PROFILE_NAME-$PROJECT_KEY-ProjectProperties-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     return $REST_RESULTS | ConvertTo-Json -Depth 100 -Compress
 }
@@ -1354,7 +1376,7 @@ function Get-JiraProjectProperty {
         [Parameter(Mandatory = $true)]
         [string]$PROPERTY_KEY
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     Write-Debug $REST_RESULTS.getType()
     Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
 }
@@ -1383,12 +1405,12 @@ function Set-JiraProjectProperty {
         $content | ConvertFrom-Json | Out-Null
         return
     }
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $content -ContentType 'application/json'
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $content -ContentType 'application/json'
     Write-Debug $REST_RESULTS.getType()
     # Write all of the $REST_RESULTS to the console as PSObjects with all properties
     Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
     Write-Debug '###############################################'
-    Write-Debug "Querying the property to confirm the value was set... $PROPERTY_KEY in $PROJECT_KEY via $($env:AtlassianPowerKit_AtlassianAPIEndpoint)"
+    Write-Debug "Querying the property to confirm the value was set... $PROPERTY_KEY in $PROJECT_KEY via $($env:AtlassianPowerKit_ENDPOINT)"
     Get-JiraProjectProperty -PROJECT_KEY $PROJECT_KEY -PROPERTY_KEY $PROPERTY_KEY
     Write-Debug '###############################################'
 }
@@ -1427,11 +1449,11 @@ function Clear-JiraProjectProperty {
         [Parameter(Mandatory = $true)]
         [string]$PROPERTY_KEY
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Delete
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/$PROJECT_KEY/properties/$PROPERTY_KEY" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Delete
     Write-Debug $REST_RESULTS.getType()
     Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
     Write-Debug '###############################################'
-    Write-Debug "Querying the propertues to confirm the value was deleted... $PROPERTY_KEY in $PROJECT_KEY via $($env:AtlassianPowerKit_AtlassianAPIEndpoint)"
+    Write-Debug "Querying the propertues to confirm the value was deleted... $PROPERTY_KEY in $PROJECT_KEY via $($env:AtlassianPowerKit_ENDPOINT)"
     Get-JiraProjectProperties -JiraCloudProjectKey $PROJECT_KEY
     Write-Debug '###############################################'
 }
@@ -1441,7 +1463,7 @@ function Get-JIRAFieldContextList {
         [Parameter(Mandatory = $true)]
         [string]$FIELD_ID
     )
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)//rest/api/3/field/$FIELD_ID/context" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)//rest/api/3/field/$FIELD_ID/context" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     #Write-Debug $REST_RESULTS.getType()
     #Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
     return $REST_RESULTS
@@ -1456,11 +1478,11 @@ function Get-JIRAFieldContextOptionList {
     
     )
     $REQUEST_RESULTS = $()
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $REQUEST_RESULTS += $REST_RESULTS.values
     while (!$REST_RESULTS.isLast) {
         $nextPageStart = $REST_RESULTS.startAt + $REST_RESULTS.maxResults
-        $APPEND_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option?startAt=$nextPageStart" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+        $APPEND_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option?startAt=$nextPageStart" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
         $REST_RESULTS.values += $APPEND_RESULTS.values
         $REST_RESULTS.startAt = $APPEND_RESULTS.startAt
         $REST_RESULTS.isLast = $APPEND_RESULTS.isLast
@@ -1528,7 +1550,7 @@ function Set-JIRAFieldContextOptions {
         $FULL_PAYLOAD = "{`"options`": [$JSON_PAYLOAD]}"
 
         # Make the API request
-        $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option" `
+        $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option" `
             -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) `
             -Method $METHOD `
             -Body $FULL_PAYLOAD `
@@ -1562,8 +1584,8 @@ function Remove-RemoteIssueLink {
         $REST_RESULTS = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING
         $REST_RESULTS.issues | ForEach-Object {
             Write-Debug "Issue Key: $($_.key)"
-            Write-Debug "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$($_.key)/remotelink?globalId=$GLOBAL_LINK_ID_ENCODED"
-            Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issue/$($_.key)/remotelink?globalId=$GLOBAL_LINK_ID_ENCODED" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Delete
+            Write-Debug "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$($_.key)/remotelink?globalId=$GLOBAL_LINK_ID_ENCODED"
+            Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$($_.key)/remotelink?globalId=$GLOBAL_LINK_ID_ENCODED" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Delete
         }
     } catch {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
@@ -1573,7 +1595,7 @@ function Remove-RemoteIssueLink {
 
 # Function get available JIRA issue link types
 function Get-JiraIssueLinkTypes {
-    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issueLinkType" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issueLinkType" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     #Write-Debug $REST_RESULTS.getType()
     #Write-Debug (ConvertTo-Json $REST_RESULTS -Depth 10)
     Write-Debug "Available JIRA Issue Link Types: $($REST_RESULTS.issueLinkTypes.name -join ', ')"
@@ -1598,7 +1620,7 @@ function Set-IssueLinkTypeByJQL {
         [Parameter(Mandatory = $false)]
         [switch]$force
     )
-    $ISSUELINK_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/issueLink"
+    $ISSUELINK_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issueLink"
     # INPUT VALIDATION
     ## PARAMTERS
     ### Issue links for JQL query results can be created, updated or deleted
@@ -1666,7 +1688,6 @@ function Set-IssueLinkTypeByJQL {
             return
         }
     }
-
     # FUNCTION to create a new link
     function New-JiraIssueLink {
         param (
@@ -1713,10 +1734,15 @@ function Set-IssueLinkTypeByJQL {
     }
     ### JQL QUERY
     Write-Debug "Runniong JQL Query: $JQL_STRING"
-    $REST_RESULTS = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -RETURN_FIELDS @('id', 'key')
+    $REST_RESULTS = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -RETURN_FIELDS @('id', 'key') -ReturnJSONOnly
+    $REST_RESULTS | Write-Debug
+    $REST_RESULTS = $REST_RESULTS | ConvertFrom-Json -AsHashtable -NoEnumerate
+    Write-Debug "JQL Query results: $($REST_RESULTS.Count) issues found"
+    Write-Debug "First issue found: $($REST_RESULTS[0] | ConvertTo-Json -Depth 10)"
 
-    $REST_RESULTS.issues | ForEach-Object {
+    $REST_RESULTS | ForEach-Object {
         $THIS_ISSUE = $_
+        Write-Debug "Function: $($MyInvocation.MyCommand.Name) - Processing issue: $($THIS_ISSUE.key)"
         if ($NEW_LINK_TYPE_OR_NONE -ine 'None') {
             if ($LINK_DIRECTION_FOR_JQL -eq 'inward') {
                 $INWARD_ISSUE_KEY = $THIS_ISSUE.key
@@ -1738,23 +1764,25 @@ function Set-IssueLinkTypeByJQL {
                         New-JiraIssueLink -LINK_TYPE $NEW_LINK_TYPE_OR_NONE -INWARD_ISSUE_KEY $INWARD_ISSUE_KEY -OUTWARD_ISSUE_KEY $OUTWARD_ISSUE_KEY
                     } catch {
                         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
-                        Write-Error "Error updating field: $($_.Exception.Message)"
+                        Write-Error "Error updating field: $($_.Exception.Message)'
                     }
                 } else {
-                    Write-Debug "Issue Key: $($THIS_ISSUE.key) - Link Type Name: $($_.type.name), no new link type specified, just removing..."
+                    Write-Debug 'Issue Key: $($THIS_ISSUE.key) - Link Type Name: $($_.type.name), no new link type specified, just removing..."
+                    }
+                    # Write-Debug "New was created: $($NEW_LINK | ConvertTo-Json -Depth 10)"
+                    Write-Debug '#################################################################'
+                    $CURRNT_LINK_FULL = Invoke-RestMethod -Uri $($CURRNT_HALF_LINK.self) -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+                    Write-Debug "Removing link: $($CURRNT_LINK_FULL.type.name) [$($CURRNT_LINK_FULL.id)] from $($CURRNT_LINK_FULL.inwardIssue.key) to $($CURRNT_LINK_FULL.outwardIssue.key)"
+                    try {
+                        Remove-JiraIssueLink -LINK_ID $($CURRNT_LINK_FULL.id)
+                    } catch {
+                        Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
+                        Write-Error "Error updating field: $($_.Exception.Message)'
                 }
-                # Write-Debug "New was created: $($NEW_LINK | ConvertTo-Json -Depth 10)"
-                Write-Debug '#################################################################'
-                $CURRNT_LINK_FULL = Invoke-RestMethod -Uri $($CURRNT_HALF_LINK.self) -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
-                Write-Debug "Removing link: $($CURRNT_LINK_FULL.type.name) [$($CURRNT_LINK_FULL.id)] from $($CURRNT_LINK_FULL.inwardIssue.key) to $($CURRNT_LINK_FULL.outwardIssue.key)"
-                try {
-                    Remove-JiraIssueLink -LINK_ID $($CURRNT_LINK_FULL.id)
-                } catch {
-                    Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
-                    Write-Error "Error updating field: $($_.Exception.Message)"
+                Write-Debug 'Link removed: [type = $($CURRNT_LINK_FULL.type.name)] from $($CURRNT_LINK_FULL.inwardIssue.key) to $($CURRNT_LINK_FULL.outwardIssue.key)"
+                        Write-Debug '#################################################################'
+                    }
                 }
-                Write-Debug "Link removed: [type = $($CURRNT_LINK_FULL.type.name)] from $($CURRNT_LINK_FULL.inwardIssue.key) to $($CURRNT_LINK_FULL.outwardIssue.key)"
-                Write-Debug '#################################################################'
             }
         }
     }
@@ -1777,8 +1805,8 @@ function Add-FormsFromJQLQueryResults {
         $ISSUE = $_
         #https://api.atlassian.com/jira/forms/cloud/{cloudId}/issue/{issueIdOrKey}/form'
         $ISSUE_FORM_ID_URL = "https://api.atlassian.com/jira/forms/cloud/$($env:AtlassianPowerKit_CloudID)/issue/$($ISSUE.key)/form"
-        Write-Debug "Attaching form ($FORM_ID) to issue: $($ISSUE.key)"
-        Write-Debug "URL: $ISSUE_FORM_ID_URL"
+        Write-Debug "Attaching form ($FORM_ID) to issue: $($ISSUE.key)'
+        Write-Debug 'URL: $ISSUE_FORM_ID_URL"
         $PAYLOAD = @{
             formTemplate = @{
                 id = $FORM_ID
@@ -1813,10 +1841,11 @@ function Set-AttachedFormsExternal {
                 Invoke-RestMethod -Uri "$ISSUE_FORM_ATTACHMENTS_URL/$($ATTACHED_FORM.id)/action/external" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put
             } catch {
                 Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
-                Write-Error "Error updating field: $($_.Exception.Message)"
+                Write-Error "Error updating field: $($_.Exception.Message)'
             }
         } else {
-            Write-Debug "No form found for issue: $($ISSUE.key)"
+            Write-Debug 'No form found for issue: $($ISSUE.key)"
+            }
         }
     }
 }
@@ -1843,7 +1872,7 @@ function Get-FormsForJiraProject {
     )
     $FILENAME = "$env:AtlassianPowerKit_PROFILE_NAME-$PROJECT_KEY-Forms-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     $REST_RESULTS = @()
-    $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/search" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $REST_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/search" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     $REST_RESULTS += $REST_RESPONSE.values
 
     Write-Debug 'Adding first page of projects to results...'
@@ -1902,10 +1931,10 @@ function Remove-FormsFromJQLQueryResults {
         $ISSUE_FORM_ID_URL = "https://api.atlassian.com/jira/forms/cloud/$($env:AtlassianPowerKit_CloudID)/issue/$($ISSUE.key)/form"
         $ATTACHED_FORMS = Invoke-RestMethod -Uri "$ISSUE_FORM_ID_URL" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
         if ($null -eq $ATTACHED_FORMS -or $ATTACHED_FORMS -eq 0) {
-            Write-Debug "No form found for issue: $($ISSUE.key)"
+            Write-Debug "No form found for issue: $($ISSUE.key)'
         } else {
-            Write-Debug "Issue Key: $($ISSUE.key) - ATTACHED_FORMS to remove: "
-            Write-Debug "ATTACHED FORMS COUNT: $($ATTACHED_FORMS.Count)"
+            Write-Debug 'Issue Key: $($ISSUE.key) - ATTACHED_FORMS to remove: '
+            Write-Debug 'ATTACHED FORMS COUNT: $($ATTACHED_FORMS.Count)"
             $ATTACHED_FORMS | ConvertTo-Json -Depth 10 | Write-Debug
             $ATTACHED_FORMS | ForEach-Object {
                 $ATTACHED_FORM = $_
@@ -1941,7 +1970,7 @@ function Show-JiraCloudJSMProjectRole {
         [Parameter(Mandatory = $true)]
         [string]$JiraCloudJSMProjectKey
     )
-    $JiraProjectRoles = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/project/$JiraCloudJSMProjectKey/role" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $JiraProjectRoles = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/project/$JiraCloudJSMProjectKey/role" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     Write-Debug $JiraProjectRoles.getType()
     $JiraProjectRoles | Get-Member -MemberType Properties | ForEach-Object {
         Write-Debug "$($_.Name) - $($_.Definition) - ID: $($_.Definition.split('/')[-1])"

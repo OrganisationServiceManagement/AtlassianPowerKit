@@ -74,7 +74,7 @@ function Update-GRCosmConfRegister {
         [Parameter(Mandatory = $true)]
         [string]$FILTER_ID
     )
-    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get 
+    $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get 
 
     $WEB_UI_HEADERS = @{
         Authorization = "Basic $env:AtlassianPowerKit_AtlassianAPIAuthString"
@@ -93,7 +93,7 @@ function Update-GRCosmConfRegister {
     $ScriptPath = "$PUPPETEER_PATH\generate-pdf.js"
     $Arguments = @(
         $ScriptPath, # First argument is the script path
-        "--url=https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/sr/jira.issueviews:searchrequest-printable/$FILTER_ID/SearchRequest-$FILTER_ID.html",
+        "--url=https://$($env:AtlassianPowerKit_ENDPOINT)/sr/jira.issueviews:searchrequest-printable/$FILTER_ID/SearchRequest-$FILTER_ID.html",
         "--auth=Basic $env:AtlassianPowerKit_AtlassianAPIAuthString",
         "--output=$OUTPUT_FILE",
         '--format=A2',
@@ -128,7 +128,7 @@ function Update-GRCosmConfRegister {
     # Update  ri:filename="GRCosm-_Asset_Register20250129_005159.pdf" to the uploaded file name
     $UPDATED_PAGE_STORAGE_FORMAT = $CURRENT_PAGE_STORAGE_FORMAT -replace 'ri:filename=".*?"', "ri:filename=""$FILENAME.pdf"""
     Write-Debug "Updated storage format for Confluence page: $CONFLUENCE_PAGE_ID, getting current page info..."
-    $CURRENT_PAGE_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
+    $CURRENT_PAGE_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     # Step 4: Prepare the updated content
     $UPDATEDBODY = @{
         id      = $CONFLUENCE_PAGE_ID
@@ -149,7 +149,7 @@ function Update-GRCosmConfRegister {
 
     # Step 5: Update the Confluence page
     Write-Debug "Pushing updated Confluence page: $CONFLUENCE_PAGE_ID"
-    $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -ContentType 'application/json' -Method Put -Body $UPDATEDBODY
+    $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -ContentType 'application/json' -Method Put -Body $UPDATEDBODY
     Write-Debug "Update response: $UPDATE_RESPONSE"
     Write-Debug "Confluence page updated: $CONFLUENCE_PAGE_ID"
     Return $UPDATE_RESPONSE | ConvertTo-Json

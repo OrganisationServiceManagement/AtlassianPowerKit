@@ -51,8 +51,7 @@
     # ProcessorArchitecture = ''
 
     # Modules that must be imported into the global environment prior to importing this module
-    RequiredModules   = @('Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
-
+    
     # Assemblies that must be loaded prior to importing this module
     # RequiredAssemblies = @()
 
@@ -69,18 +68,7 @@
     #NestedModules     = @('..\AtlassianPowerKit-Vault\AtlassianPowerKit-Vault.psd1')
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @(
-        'Clear-AtlassianPowerKitProfile',
-        'Clear-AtlassianPowerKitProfileDirs',
-        'Clear-AtlassianPowerKitVault',
-        'Get-AtlassianPowerKitProfileList',
-        'Get-PaginatedJSONResults',
-        'Get-LevenshteinDistance',
-        'Register-AtlassianPowerKitProfileInVault',
-        'Set-AtlassianPowerKitProfile',
-        'Remove-AtlasianPowerKitProfile',
-        'Unlock-Vault'
-    )
+    FunctionsToExport = '*'
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
 

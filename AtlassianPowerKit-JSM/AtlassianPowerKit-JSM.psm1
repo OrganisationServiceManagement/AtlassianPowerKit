@@ -43,7 +43,7 @@ function Get-JiraServiceDeskRequestTypes {
     )
     $FILENAME = "$env:AtlassianPowerKit_PROFILE_NAME-$PROJECT_KEY-RequestTypeSchema-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     $REQUEST_TYPE_ARRAY = @()
-    $REQUEST_TYPES = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/servicedeskapi/servicedesk/$PROJECT_KEY/requesttype" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+    $REQUEST_TYPES = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/servicedeskapi/servicedesk/$PROJECT_KEY/requesttype" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $REQUEST_TYPE_ARRAY += $REQUEST_TYPES.values
     while (! $REQUEST_TYPES.isLastPage) {
         $REQUEST_TYPES = Invoke-RestMethod -Uri $REQUEST_TYPES._links.next -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'

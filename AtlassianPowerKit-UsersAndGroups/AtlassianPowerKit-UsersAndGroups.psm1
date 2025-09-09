@@ -77,7 +77,7 @@ function Get-AtlassianGroupMembersBulk {
 
 # Function to list all Atlassian Groups and their members
 function Get-AtlassianGroups {
-    $GROUPS_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/2/groups/picker?maxResults=100"
+    $GROUPS_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/2/groups/picker?maxResults=100"
     $GROUP_ENDPOINT_HEADERS = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
     Write-Debug "Groups Endpoint: $GROUPS_ENDPOINT"
     Write-Debug "Headers: $GROUP_ENDPOINT_HEADERS"
@@ -106,7 +106,7 @@ function Get-AtlassianGroupMembers {
     $HEADERS = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
     Write-Debug "Group Name: $GROUP_NAME"
     Write-Debug "Group Name Encoded: $GROUP_NAME_ENCODED"
-    $GROUP_MEMBERS_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/group/member?groupname=$GROUP_NAME_ENCODED&includeInactiveUsers=false&maxResults=100"
+    $GROUP_MEMBERS_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/group/member?groupname=$GROUP_NAME_ENCODED&includeInactiveUsers=false&maxResults=100"
     Write-Debug "Group Members Endpoint: $GROUP_MEMBERS_ENDPOINT"
     try {
         $REST_RESULTS = Invoke-RestMethod -Uri $GROUP_MEMBERS_ENDPOINT -Headers $HEADERS -Method Get -ContentType 'application/json'
@@ -145,7 +145,7 @@ function Get-AtlassianGroupMembers {
 function Get-AllAtlassianUsers {
     $EXPORT_DATE = Get-Date -Format 'yyyy-MM-dd-HHmmss'
     $CSV_OUTPUT_FILE = "$($env:AtlassianPowerKit_PROFILE_NAME)\AtlassianUserList-$($env:AtlassianPowerKit_PROFILE_NAME)-$EXPORT_DATE.csv"
-    $USERS_ENDPOINT = "https://$($env:AtlassianPowerKit_AtlassianAPIEndpoint)/rest/api/3/users/search?maxResults=1000"
+    $USERS_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/users/search?maxResults=1000"
     $HEADERS = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
     Write-Debug "Users Endpoint: $USERS_ENDPOINT"
     Write-Debug "Headers: $HEADERS"

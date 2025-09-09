@@ -87,6 +87,7 @@
         'Get-JiraIssue',
         'Get-JiraIssueChangeNullsFromJQL',
         'Get-JiraIssueLinks',
+        'Get-JiraIssueLinkTypes',
         'Get-JiraStatuses',
         'Get-JiraProjectList',
         'Get-JiraProjectProperties',

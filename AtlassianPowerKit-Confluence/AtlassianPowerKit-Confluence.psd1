@@ -81,6 +81,7 @@
         'Get-ConfluencePageByTitle',
         'Remove-AttachmentsFromConfPage',
         'Set-AttachmentForConfluencePage',
+        'Set-ConfluencePageContentByXMLFile',
         'Set-ConfluenceYearMonthStructure',
         'Set-ConfluenceSpacePropertyByID'
     )
