@@ -75,11 +75,6 @@ function Update-GRCosmConfRegister {
         [string]$FILTER_ID
     )
     $FILTER_INFO = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get 
-
-    $WEB_UI_HEADERS = @{
-        Authorization = "Basic $env:AtlassianPowerKit_AtlassianAPIAuthString"
-        Accept        = 'text/html'
-    }
     $TIME_STAMP = Get-Date -Format 'yyyyMMdd_HHmmss'
     $FILENAME = $FILTER_INFO.name.Replace(' ', '_').Replace(':', '-').Replace('/', '_').Replace('\', '_').Replace('[^a-zA-Z0-9]', '') + $TIME_STAMP
     #FiLENAME is just GRC.*, exclude any prefix
@@ -113,8 +108,7 @@ function Update-GRCosmConfRegister {
     # Check the exit code
     if ($Process.ExitCode -ne 0) {
         Write-Error "Node.js script failed with exit code $($Process.ExitCode)"
-    }
-    else {
+    } else {
         Write-Host 'Node.js script completed successfully.'
     }
     Import-Module "$($env:OSM_HOME)\AtlassianPowerKit\AtlassianPowerKit-Confluence\AtlassianPowerKit-Confluence.psd1" -Force | Out-Null
@@ -152,7 +146,7 @@ function Update-GRCosmConfRegister {
     $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/wiki/api/v2/pages/$CONFLUENCE_PAGE_ID" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -ContentType 'application/json' -Method Put -Body $UPDATEDBODY
     Write-Debug "Update response: $UPDATE_RESPONSE"
     Write-Debug "Confluence page updated: $CONFLUENCE_PAGE_ID"
-    Return $UPDATE_RESPONSE | ConvertTo-Json
+    return $UPDATE_RESPONSE | ConvertTo-Json
 }
 
 function Get-OSMPlaceholdersJira {
@@ -186,8 +180,7 @@ function Get-OSMPlaceholdersJira {
                     # Write output in red
                     Write-Output "#### PLACEHOLDER FOUND!!! See: $($FILE.FullName): $_"
                     $PLACEHOLDERS += , ($($FILE.NAME), $_) }
-            }
-            else {
+            } else {
                 Write-Debug "No placeholders found in file: $($FILE.FullName)"
                 $CLEAN_FILES += $FILE
             }
@@ -245,8 +238,7 @@ function Get-OSMPlaceholdersConfluence {
                     Write-Output "#### PLACEHOLDER FOUND!!! See: $($FILE.FullName): $_"
                     $PLACEHOLDERS += , ($($FILE.NAME), $_) 
                 }
-            }
-            else {
+            } else {
                 Write-Debug "No placeholders found in file: $($FILE.FullName)"
                 $CLEAN_FILES += $FILE
             }

@@ -503,8 +503,6 @@ function Set-AttachmentForConfluencePage {
     }
 }
 
-
-
 # Function to set confluence space properties by space ID
 function Set-ConfluenceSpacePropertyByID {
     param (

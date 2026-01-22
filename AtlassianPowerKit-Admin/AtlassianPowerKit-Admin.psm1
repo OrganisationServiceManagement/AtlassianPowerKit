@@ -72,7 +72,7 @@ function New-JiraIssueType {
         Write-Debug "Issue type $JiraIssueTypeName avatar updated."
         $ExistingJiraIssueType = $CreatedJiraIssueType
     }
-    Return $ExistingJiraIssueType | ConvertTo-Json -Depth 100 -Compress
+    return $ExistingJiraIssueType | ConvertTo-Json -Depth 100 -Compress
 }
 
 function Set-OrgAdminUser {
@@ -97,7 +97,7 @@ function Import-JiraIssueTypes {
         $NewIssueType = $_
         New-JiraIssueType -JiraIssueTypeName $NewIssueType.name -JiraIssueTypeDescription $NewIssueType.description -JiraIssueTypeAvatarId $NewIssueType.avatarId -JiraIssueHierarchyLevel $NewIssueType.heirarchyLevel -ExistingJiraIssueTypeList $ExistingJiraIssueTypes
     }
-    Return $DeployedIssueTypes | ConvertFrom-Json -AsHashtable -NoEnumerate | ConvertTo-Json -Depth 100 -Compress
+    return $DeployedIssueTypes | ConvertFrom-Json -AsHashtable -NoEnumerate | ConvertTo-Json -Depth 100 -Compress
 }
 
 # Function to create 
@@ -135,7 +135,7 @@ function Import-JSONConfigExport {
             Write-Debug "Output written to $FULL_CONFIG_OUTPUT_JSONFILE"
         }
     }
-    Return $FULL_CONFIG_OUTPUT_JSONFILE
+    return $FULL_CONFIG_OUTPUT_JSONFILE
 }
 
 
@@ -195,7 +195,7 @@ function Get-OSMConfigAsMarkdown {
         PROFILE_NAME              = $PROFILE_NAME 
     }
 
-    Return $JSON_RETURN | ConvertTo-Json -Depth 100 -Compress
+    return $JSON_RETURN | ConvertTo-Json -Depth 100 -Compress
 }
 
 function Export-ProjectProformaFormTemplates {
@@ -225,7 +225,7 @@ function Export-ProjectProformaFormTemplates {
     }
     
     $PROFORMA_API_ENDPOINT = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/proforma/1.0"
-    Return $OUTPUT_FILE
+    return $OUTPUT_FILE
 
 }
 
@@ -310,7 +310,7 @@ function Get-OSMDeploymentConfigsJIRA {
         }
     } 
     $JIRA_PROJECTS | ConvertTo-Json -Depth 100 -Compress | Out-File -FilePath $OUTPUT_FILE -Force | Out-Null
-    Return $OUTPUT_FILE
+    return $OUTPUT_FILE
 }
     
 # Funtion to list project properties (JIRA entities)
@@ -327,7 +327,7 @@ function Get-JiraProjectIssueTypes {
     } else {
         # Get the most recent auda-ProjectList-*.json in the $OUTPUT_PATH or run Get-JiraProjectList and check again for the file
         $PROJECT_LIST_FILE = Get-ChildItem -Path $OUTPUT_PATH -Filter "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-*.json" | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
-        While (-not $PROJECT_LIST_FILE) {
+        while (-not $PROJECT_LIST_FILE) {
             Write-Debug 'No Project List file found, running Get-JiraProjectList...'
             Get-JiraProjectList -OUTPUT_PATH $OUTPUT_PATH
             $PROJECT_LIST_FILE = Get-ChildItem -Path $OUTPUT_PATH -Filter "$env:AtlassianPowerKit_PROFILE_NAME-ProjectList-*.json" | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
@@ -360,7 +360,7 @@ function Get-JiraCloudIssueTypeMetadata {
     $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/createmeta/$PROJECT_KEY&expand=projects.issuetypes.fields" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get
     ConvertTo-Json $REST_RESULTS -Depth 50 | Out-File -FilePath "$OUTPUT_PATH\$FILENAME"
     Write-Debug "Issue Type Metadata JSON file created: $OUTPUT_PATH\$FILENAME"
-    Return $REST_RESULTS
+    return $REST_RESULTS
 }
 
 # Fuction to get Issue Type schema for a Jira Cloud project
@@ -412,7 +412,7 @@ function Get-FilterJQL {
             Write-Error 'Error getting filter JQL: $($_.Exception.Message)"
         }
     }
-    Return $REST_RESPONSE.jql
+    return $REST_RESPONSE.jql
 }
 
 function Get-JiraOSMFilterList {
@@ -423,22 +423,29 @@ function Get-JiraOSMFilterList {
     $FILTERS_SEARCH_URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/search"
     $PROJECT_LIST = Get-JiraProjectList | ConvertFrom-Json
     # Get Project ID project with key GRCOSM
-    $SEARCH_TERMS_FOR_FILTERS = @(
-        @{ 'Name' = 'filterName'; 'Value' = 'osm' })
+    Write-Debug "Getting filters for projects: $($PROJECT_KEYS -join ', ')"
+    #$SEARCH_TERMS_FOR_FILTERS = @(
+    #    @{ 'Name' = 'filterName'; 'Value' = 'osm' })
     $PROJECT_ID_SEARCHES = $PROJECT_KEYS | ForEach-Object {
         $PROJECT_KEY = $_
         $PROJECT_ID = $PROJECT_LIST | Where-Object { $_.key -eq $PROJECT_KEY } | Select-Object -ExpandProperty id
         if ($PROJECT_ID) {
-            Return @{ 'Name' = 'projectId'; 'Value' = $PROJECT_ID }
+            return @{ 
+                'ProjectID'  = $PROJECT_ID
+                'ProjectKey' = $PROJECT_KEY
+            }
         }
     }
-    $SEARCH_TERMS_FOR_FILTERS += $PROJECT_ID_SEARCHES
+    $SEARCH_TERMS_FOR_FILTERS = $PROJECT_ID_SEARCHES
     # Write-Debug 'Searching for filters with search terms: '
     # $SEARCH_TERMS_FOR_FILTERS | ConvertTo-Json -Depth 100 | Write-Debug
     # Write-Debug 'Attempting to get results using Get-PaginatedJSONResults...'
     $FILTER_RESULTS = $SEARCH_TERMS_FOR_FILTERS | ForEach-Object {
-        $ONE_FILTER_SEARCH_URL = "$FILTERS_SEARCH_URL" + '?' + $_.Name + '=' + $_.Value
+        Write-Debug "Getting filters for project ID: $($_.ProjectID)..."
+        $ONE_FILTER_SEARCH_URL = "$FILTERS_SEARCH_URL" + '?projectId=' + $_.PrjectID + '&expand=owner'
         Get-PaginatedJSONResults -URI $ONE_FILTER_SEARCH_URL -METHOD Get -RESPONSE_JSON_OBJECT_FILTER_KEY 'values' | ConvertFrom-Json -AsHashtable  
+        Write-Debug "Done getting filters for project ID: $($_.ProjectID)."
+        Write-Debug 'Total Filter results so far: ' + $FILTER_RESULTS.Count
     }
     Write-Debug 'Filter results received... processing...'
     $i = 1

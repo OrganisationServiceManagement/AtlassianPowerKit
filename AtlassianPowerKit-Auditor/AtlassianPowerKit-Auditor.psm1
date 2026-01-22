@@ -145,8 +145,7 @@ function Get-OSMPlaceholdersJira {
                     # Write output in red
                     Write-Output "#### PLACEHOLDER FOUND!!! See: $($FILE.FullName): $_"
                     $PLACEHOLDERS += , ($($FILE.NAME), $_) }
-            }
-            else {
+            } else {
                 Write-Debug "No placeholders found in file: $($FILE.FullName)"
                 $CLEAN_FILES += $FILE
             }
@@ -203,8 +202,7 @@ function Get-OSMPlaceholdersConfluence {
                     # Write output in red
                     Write-Output "#### PLACEHOLDER FOUND!!! See: $($FILE.FullName): $_"
                     $PLACEHOLDERS += , ($($FILE.NAME), $_) }
-            }
-            else {
+            } else {
                 Write-Debug "No placeholders found in file: $($FILE.FullName)"
                 $CLEAN_FILES += $FILE
             }
@@ -224,6 +222,193 @@ function Get-OSMPlaceholdersConfluence {
 }
 
 
+
+function Get-UserActivitiesSince {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$USERNAME,
+        [Parameter(Mandatory = $false)]
+        [datetime]$SINCE = (Get-Date).AddMonths(-1),
+        [Parameter(Mandatory = $false)]
+        [datetime]$UNTIL = (Get-Date),
+        [Parameter(Mandatory = $false)]
+        [array]$PRODUCTS = @('jira', 'confluence')
+    )
+    Write-Debug "Getting activities for user: $USERNAME since $SINCE until $UNTIL for products: $PRODUCTS"
+    if (-not $PRODUCTS -or $PRODUCTS.Count -eq 0) {
+        Write-Warning 'No products specified, returning empty result.'
+        return @()
+    }
+    $ORG_ID = Get-OrgID
+    $ACTIVITIES = @()
+    foreach ($PRODUCT in $PRODUCTS) {
+        $ACTIVITY_ENDPOINT = "https://api.atlassian.com/admin/v1/orgs/$ORG_ID/auditlog/$PRODUCT/activities?filter=actor eq '$USERNAME' and createdDate ge '$($SINCE.ToString('o'))' and createdDate le '$($UNTIL.ToString('o'))'&limit=1000"
+        Write-Debug "Activity endpoint: $ACTIVITY_ENDPOINT"
+        $PAGE = 1
+        do {
+            Write-Debug "Getting page $PAGE of activities for product: $PRODUCT"
+            $RESPONSE = Invoke-RestMethod -Uri $ACTIVITY_ENDPOINT -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
+            if ($RESPONSE.values) {
+                $ACTIVITIES += $RESPONSE.values
+            }
+            $ACTIVITY_ENDPOINT = $RESPONSE._links.next.href
+            $PAGE++
+        } while ($ACTIVITY_ENDPOINT)
+    }
+    return $ACTIVITIES
+}
+# ...existing code...
+
+function Get-UserActivityConfluenceSpace {
+    <#
+      Queries activity for the authenticated user (API key owner) across one or more Confluence spaces.
+      - Accepts multiple space keys via -SpaceKeys
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [Alias('SpaceKey')]                       # backward compatibility
+        [string[]]$SpaceKeys,
+        [datetime]$Since = (Get-Date).ToUniversalTime().AddDays(-30),
+        [datetime]$Until = (Get-Date).ToUniversalTime(),
+        [int]$MaxPage = 100,
+        [int]$LimitPerSpace = 500,
+        [string]$OutFile
+    )
+    if (-not $env:AtlassianPowerKit_AtlassianAPIHeaders) { throw 'API headers not initialized.' }
+    if (-not $env:AtlassianPowerKit_ENDPOINT) { throw 'Endpoint env var not set.' }
+    $headers = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
+    $base = $env:AtlassianPowerKit_ENDPOINT
+
+    $sinceIso = $Since.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $untilIso = $Until.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+
+    $all = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($space in $SpaceKeys) {
+        $cql = "space=$space AND lastmodified >= $sinceIso AND lastmodified <= $untilIso AND (creator = currentUser() OR contributor = currentUser())"
+        $enc = [System.Web.HttpUtility]::UrlEncode($cql)
+        $start = 0
+        $collectedForSpace = 0
+        while ($true) {
+            if ($collectedForSpace -ge $LimitPerSpace) { break }
+            $remain = $LimitPerSpace - $collectedForSpace
+            $pageSize = [Math]::Min($MaxPage, $remain)
+            $url = "https://$base/wiki/rest/api/search?cql=$enc&limit=$pageSize&start=$start&expand=content.version,content.history.lastUpdated,content.history.createdBy"
+            $resp = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+            if (-not $resp.results) { break }
+            foreach ($r in $resp.results) {
+                $c = $r.content
+                $all.Add([pscustomobject]@{
+                        Source          = 'Confluence'
+                        SpaceKey        = $space
+                        ContentId       = $c.id
+                        Type            = $c.type
+                        Title           = $c.title
+                        Version         = $c.version.number
+                        LastUpdatedUtc  = ($c.history.lastUpdated.when | Get-Date).ToUniversalTime()
+                        LastUpdatedById = $c.history.lastUpdated.by.accountId
+                        CreatedById     = $c.history.createdBy.accountId
+                        Link            = "https://$base/wiki$($c._links.webui)"
+                    })
+            }
+            $got = $resp.results.Count
+            $collectedForSpace += $got
+            if ($got -lt $pageSize) { break }
+            $start += $got
+        }
+    }
+
+    if ($OutFile) {
+        $ext = [IO.Path]::GetExtension($OutFile).ToLower()
+        if ($ext -eq '.csv') {
+            $all | Export-Csv -Path $OutFile -NoTypeInformation -Encoding UTF8
+        } else {
+            $all | ConvertTo-Json -Depth 6 | Out-File -FilePath $OutFile -Encoding UTF8
+        }
+    }
+    return $all
+}
+
+function Get-UserActivityJiraProject {
+    <#
+      Queries issues the authenticated user touched (reporter/assignee) across multiple Jira projects.
+      - Accepts multiple project keys via -ProjectKeys
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [Alias('ProjectKey')]
+        [string[]]$ProjectKeys,
+        [datetime]$Since = (Get-Date).ToUniversalTime().AddDays(-30),
+        [datetime]$Until = (Get-Date).ToUniversalTime(),
+        [int]$MaxPerPage = 100,
+        [int]$Limit = 1000,              # total issues across all projects
+        [switch]$IncludeChangelog,
+        [string]$OutFile
+    )
+    if (-not $env:AtlassianPowerKit_AtlassianAPIHeaders) { throw 'API headers not initialized.' }
+    if (-not $env:AtlassianPowerKit_ENDPOINT) { throw 'Endpoint env var not set.' }
+    $headers = ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders
+    $base = $env:AtlassianPowerKit_ENDPOINT
+
+    $me = Invoke-RestMethod -Uri "https://$base/rest/api/3/myself" -Headers $headers -Method Get -ErrorAction Stop
+    $acctId = $me.accountId
+
+    $sinceStr = $Since.ToUniversalTime().ToString('yyyy/MM/dd HH:mm')
+    $projClause = '(' + ($ProjectKeys | ForEach-Object { "project = `"$($_)`"" }) -join ' OR ' + ')'
+    $userClause = "(reporter = $acctId OR assignee = $acctId)"
+    $jql = "$projClause AND updated >= `"$sinceStr`" AND $userClause ORDER BY updated DESC"
+    $enc = [System.Web.HttpUtility]::UrlEncode($jql)
+
+    $expand = if ($IncludeChangelog) { 'changelog' } else { '' }
+    $startAt = 0
+    $issues = [System.Collections.Generic.List[object]]::new()
+
+    while ($true) {
+        if ($issues.Count -ge $Limit) { break }
+        $remain = $Limit - $issues.Count
+        $pageSize = [Math]::Min($MaxPerPage, $remain)
+        $url = "https://$base/rest/api/3/search?jql=$enc&startAt=$startAt&maxResults=$pageSize&fields=summary,project,issuetype,updated,created,reporter,assignee,status&expand=$expand"
+        $resp = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+        if (-not $resp.issues) { break }
+        foreach ($i in $resp.issues) {
+            $updated = (Get-Date $i.fields.updated).ToUniversalTime()
+            if ($updated -gt $Until.ToUniversalTime()) { continue }
+            $issues.Add([pscustomobject]@{
+                    Source     = 'Jira'
+                    Key        = $i.key
+                    Project    = $i.fields.project.key
+                    IssueType  = $i.fields.issuetype.name
+                    Summary    = $i.fields.summary
+                    Status     = $i.fields.status.name
+                    ReporterId = $i.fields.reporter.accountId
+                    AssigneeId = $i.fields.assignee.accountId
+                    UpdatedUtc = $updated
+                    CreatedUtc = (Get-Date $i.fields.created).ToUniversalTime()
+                    BrowseLink = "https://$base/browse/$($i.key)"
+                    Changelog  = if ($IncludeChangelog) { $i.changelog } else { $null }
+                })
+        }
+        $got = $resp.issues.Count
+        if ($got -lt $pageSize) { break }
+        $startAt += $got
+    }
+
+    if ($OutFile) {
+        $ext = [IO.Path]::GetExtension($OutFile).ToLower()
+        if ($ext -eq '.csv') {
+            $issues | Select-Object Source, Key, Project, IssueType, Summary, Status, ReporterId, AssigneeId, UpdatedUtc, CreatedUtc, BrowseLink |
+            Export-Csv -Path $OutFile -NoTypeInformation -Encoding UTF8
+        } else {
+            $issues | ConvertTo-Json -Depth 8 | Out-File -FilePath $OutFile -Encoding UTF8
+        }
+    }
+    return $issues
+}
+
+# ...existing code...
+# ...existing code...
 
 ### SHAREPOINT FUNCTIONS
 # # Function to generate SharePoint - Confluence object mapping

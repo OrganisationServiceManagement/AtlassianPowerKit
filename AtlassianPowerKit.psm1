@@ -346,7 +346,7 @@ function AtlassianPowerKit {
         $env:AtlassianPowerKit_RequisiteModules = Get-RequisitePowerKitModules
         Write-Debug 'AtlassianPowerKit_RequisiteModules - Required modules imported'
     }
-    $NESTED_MODULES = Import-NestedModules -NESTED_MODULES @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-Jira', 'AtlassianPowerKit-Confluence', 'AtlassianPowerKit-GRCosm', 'AtlassianPowerKit-JSM', 'AtlassianPowerKit-UsersAndGroups', 'AtlassianPowerKit-Admin')
+    $NESTED_MODULES = Import-NestedModules -NESTED_MODULES @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-Jira', 'AtlassianPowerKit-Confluence', 'AtlassianPowerKit-GRCosm', 'AtlassianPowerKit-JSM', 'AtlassianPowerKit-UsersAndGroups', 'AtlassianPowerKit-Admin', 'AtlassianPowerKit-Auditor')
     #Push-Location -Path $PSScriptRoot -ErrorAction Continue
     Write-Debug "Starting AtlassianPowerKit, running from $((Get-Item -Path $PSScriptRoot).FullName)"
     #Write-Debug 'OSM Directories: '
