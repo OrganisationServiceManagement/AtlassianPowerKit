@@ -78,9 +78,281 @@ function New-JiraIssueType {
 function Set-OrgAdminUser {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$ORG_ADMIN_USER
+        [string]$ORG_ADMIN_USER,
+        [Parameter(Mandatory = $false)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
     )
-    $ATLASSIAN_ADMIN_API = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/user?username=$ORG_ADMIN_USER"
+    if (-not $ORG_ID) {
+        $ORG_ID = Get-AtlassianAdminOrgId -ADMIN_API_KEY $ADMIN_API_KEY
+    }
+
+    $ACCOUNT_ID = $ORG_ADMIN_USER
+    if ($ORG_ADMIN_USER -match '@') {
+        $ORG_ADMIN_ACCOUNT = Get-AtlassianOrganizationUser -EMAIL $ORG_ADMIN_USER -ORG_ID $ORG_ID -ADMIN_API_KEY $ADMIN_API_KEY
+        if (-not $ORG_ADMIN_ACCOUNT) {
+            throw "Could not resolve account ID for user '$ORG_ADMIN_USER' in organization '$ORG_ID'."
+        }
+        $ACCOUNT_ID = $ORG_ADMIN_ACCOUNT.accountId
+    }
+
+    Invoke-AtlassianAdminAPIRequest -URI "https://api.atlassian.com/admin/v1/orgs/$ORG_ID/users/$ACCOUNT_ID/role-assignments/assign" -METHOD 'Post' -BODY @{ role = 'atlassian/org-admin' } -ADMIN_API_KEY $ADMIN_API_KEY | Out-Null
+
+    return @{
+        STATUS     = 'SUCCESS'
+        ORG_ID     = $ORG_ID
+        ACCOUNT_ID = $ACCOUNT_ID
+        ROLE       = 'atlassian/org-admin'
+    } | ConvertTo-Json -Depth 10 -Compress
+
+}
+
+# Atlassian Administration APIs require a bearer API key and do not accept the
+# Jira-style Basic auth header used elsewhere in this module set.
+function Get-AtlassianAdminAPIHeaders {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ADMIN_API_KEY)) {
+        throw 'Atlassian admin API key not configured. Set $env:AtlassianPowerKit_AdminAPIKey or pass -ADMIN_API_KEY.'
+    }
+
+    return @{
+        Authorization = "Bearer $ADMIN_API_KEY"
+        Accept        = 'application/json'
+    }
+}
+
+function Invoke-AtlassianAdminAPIRequest {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$URI,
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Get', 'Post', 'Put', 'Delete')]
+        [string]$METHOD = 'Get',
+        [Parameter(Mandatory = $false)]
+        [object]$BODY,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    $HEADERS = Get-AtlassianAdminAPIHeaders -ADMIN_API_KEY $ADMIN_API_KEY
+    $ATTEMPT = 0
+    while ($true) {
+        try {
+            if ($null -ne $BODY) {
+                $JSON_BODY = if ($BODY -is [string]) { $BODY } else { $BODY | ConvertTo-Json -Depth 20 -Compress }
+                return Invoke-RestMethod -Uri $URI -Headers $HEADERS -Method $METHOD -Body $JSON_BODY -ContentType 'application/json' -ErrorAction Stop
+            }
+
+            return Invoke-RestMethod -Uri $URI -Headers $HEADERS -Method $METHOD -ContentType 'application/json' -ErrorAction Stop
+        } catch {
+            $STATUS_CODE = $null
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                $STATUS_CODE = [int]$_.Exception.Response.StatusCode
+            }
+
+            if ($STATUS_CODE -eq 429 -and $ATTEMPT -lt 2) {
+                $ATTEMPT++
+                Write-Warn "Atlassian admin API rate limited. Waiting $RETRY_AFTER seconds before retrying."
+                Start-Sleep -Seconds $RETRY_AFTER
+                continue
+            }
+
+            throw
+        }
+    }
+}
+
+function Get-AtlassianAdminOrgId {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    $ORG_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI 'https://api.atlassian.com/admin/v1/orgs' -ADMIN_API_KEY $ADMIN_API_KEY
+    $ORGS = @($ORG_RESPONSE.data)
+    if ($ORGS.Count -eq 0) {
+        throw 'No Atlassian organizations were returned for the supplied admin API key.'
+    }
+
+    if ($ORGS.Count -gt 1) {
+        Write-Warn "Multiple Atlassian organizations were returned. Using the first org ID '$($ORGS[0].id)'."
+    }
+
+    return $ORGS[0].id
+}
+
+function Get-AtlassianOrganizationUser {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$EMAIL,
+        [Parameter(Mandatory = $true)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    $SEARCH_TERM = [uri]::EscapeDataString($EMAIL)
+    $USER_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI "https://api.atlassian.com/admin/v2/orgs/$ORG_ID/directories/-/users?limit=100&searchTerm=$SEARCH_TERM" -ADMIN_API_KEY $ADMIN_API_KEY
+    return @($USER_RESPONSE.data | Where-Object { $_.email -and $_.email.ToLowerInvariant() -eq $EMAIL.ToLowerInvariant() }) | Select-Object -First 1
+}
+
+function Get-AtlassianVerifiedDomains {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    $DOMAIN_RESULTS = @()
+    $NEXT_URI = "https://api.atlassian.com/admin/v1/orgs/$ORG_ID/domains"
+    while ($NEXT_URI) {
+        $DOMAIN_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI $NEXT_URI -ADMIN_API_KEY $ADMIN_API_KEY
+        if ($DOMAIN_RESPONSE.data) {
+            $DOMAIN_RESULTS += $DOMAIN_RESPONSE.data
+        }
+        $NEXT_URI = $DOMAIN_RESPONSE.links.next
+    }
+
+    return $DOMAIN_RESULTS
+}
+
+function Test-AtlassianVerifiedEmailDomain {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$EMAIL,
+        [Parameter(Mandatory = $true)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    $EMAIL_DOMAIN = $EMAIL.Split('@')[-1].ToLowerInvariant()
+    $VERIFIED_DOMAIN = Get-AtlassianVerifiedDomains -ORG_ID $ORG_ID -ADMIN_API_KEY $ADMIN_API_KEY | Where-Object {
+        $_.attributes -and $_.attributes.name -and $_.attributes.claim -and $_.attributes.claim.status -eq 'verified' -and $_.attributes.name.ToLowerInvariant() -eq $EMAIL_DOMAIN
+    } | Select-Object -First 1
+
+    return [bool]$VERIFIED_DOMAIN
+}
+
+function Get-AtlassianWorkspaceResourceId {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$WORKSPACE_HOST_URL = $(if ($env:AtlassianPowerKit_ENDPOINT) { "https://$($env:AtlassianPowerKit_ENDPOINT)" } else { $null }),
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($env:AtlassianPowerKit_CloudID)) {
+        return "ari:cloud:jira::site/$($env:AtlassianPowerKit_CloudID)"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($WORKSPACE_HOST_URL)) {
+        throw 'Workspace host URL could not be determined. Pass -WORKSPACE_HOST_URL or set AtlassianPowerKit_ENDPOINT.'
+    }
+
+    $WORKSPACE_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI "https://api.atlassian.com/admin/v2/orgs/$ORG_ID/workspaces" -METHOD 'Post' -BODY @{ limit = 100 } -ADMIN_API_KEY $ADMIN_API_KEY
+    $WORKSPACE = @($WORKSPACE_RESPONSE.data | Where-Object { $_.attributes -and $_.attributes.hostUrl -eq $WORKSPACE_HOST_URL }) | Select-Object -First 1
+    if (-not $WORKSPACE) {
+        throw "Could not resolve a workspace resource ID for host URL '$WORKSPACE_HOST_URL'."
+    }
+
+    return $WORKSPACE.id
+}
+
+function New-AtlassianEmergencyAdminUser {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$EMAIL,
+        [Parameter(Mandatory = $false)]
+        [string]$ORG_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$ADMIN_API_KEY = $env:AtlassianPowerKit_AdminAPIKey,
+        [Parameter(Mandatory = $false)]
+        [string]$WORKSPACE_RESOURCE_ID,
+        [Parameter(Mandatory = $false)]
+        [string]$WORKSPACE_HOST_URL = $(if ($env:AtlassianPowerKit_ENDPOINT) { "https://$($env:AtlassianPowerKit_ENDPOINT)" } else { $null }),
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('atlassian/user', 'atlassian/admin', 'atlassian/guest', 'atlassian/customer', 'atlassian/contributor', 'atlassian/basic', 'atlassian/stakeholder', 'atlassian/viewer')]
+        [string]$PRODUCT_ROLE = 'atlassian/admin',
+        [Parameter(Mandatory = $false)]
+        [string[]]$ADDITIONAL_GROUP_IDS = @(),
+        [Parameter(Mandatory = $false)]
+        [bool]$GRANT_ORG_ADMIN = $true,
+        [Parameter(Mandatory = $false)]
+        [bool]$SEND_NOTIFICATION = $true,
+        [Parameter(Mandatory = $false)]
+        [string]$NOTIFICATION_TEXT,
+        [Parameter(Mandatory = $false)]
+        [switch]$SKIP_PRODUCT_ACCESS
+    )
+
+    if (-not $ORG_ID) {
+        $ORG_ID = Get-AtlassianAdminOrgId -ADMIN_API_KEY $ADMIN_API_KEY
+    }
+
+    $EMAIL_DOMAIN_IS_VERIFIED = Test-AtlassianVerifiedEmailDomain -EMAIL $EMAIL -ORG_ID $ORG_ID -ADMIN_API_KEY $ADMIN_API_KEY
+    if ($EMAIL_DOMAIN_IS_VERIFIED) {
+        Write-Warn "Email domain '$($EMAIL.Split('@')[-1])' is verified in Atlassian. This account will still follow SSO unless you move it into a non-SSO authentication policy."
+    }
+
+    if (-not $SKIP_PRODUCT_ACCESS -and [string]::IsNullOrWhiteSpace($WORKSPACE_RESOURCE_ID)) {
+        $WORKSPACE_RESOURCE_ID = Get-AtlassianWorkspaceResourceId -ORG_ID $ORG_ID -WORKSPACE_HOST_URL $WORKSPACE_HOST_URL -ADMIN_API_KEY $ADMIN_API_KEY
+    }
+
+    $INVITE_BODY = @{
+        emails           = @($EMAIL)
+        sendNotification = $SEND_NOTIFICATION
+    }
+
+    if (-not $SKIP_PRODUCT_ACCESS) {
+        $INVITE_BODY.permissionRules = @(@{
+                resource = $WORKSPACE_RESOURCE_ID
+                role     = $PRODUCT_ROLE
+            })
+    }
+
+    if ($ADDITIONAL_GROUP_IDS -and $ADDITIONAL_GROUP_IDS.Count -gt 0) {
+        $INVITE_BODY.additionalGroups = $ADDITIONAL_GROUP_IDS
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($NOTIFICATION_TEXT)) {
+        $INVITE_BODY.notificationText = $NOTIFICATION_TEXT
+    }
+
+    $INVITE_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI "https://api.atlassian.com/admin/v2/orgs/$ORG_ID/users/invite" -METHOD 'Post' -BODY $INVITE_BODY -ADMIN_API_KEY $ADMIN_API_KEY
+    $ACCOUNT_ID = $INVITE_RESPONSE.data[0].id
+
+    if ($GRANT_ORG_ADMIN) {
+        Set-OrgAdminUser -ORG_ADMIN_USER $ACCOUNT_ID -ORG_ID $ORG_ID -ADMIN_API_KEY $ADMIN_API_KEY | Out-Null
+    }
+
+    $LOCAL_AUTH_GUIDANCE = if ($EMAIL_DOMAIN_IS_VERIFIED) {
+        'Use a non-SSO authentication policy for this account, or invite an address from an unverified domain, before treating it as a local-auth break-glass account.'
+    } else {
+        'This email domain is not verified in Atlassian, so the invited user can use native Atlassian authentication after accepting the invite and setting a password.'
+    }
+
+    return @{
+        STATUS                   = 'SUCCESS'
+        ORG_ID                   = $ORG_ID
+        EMAIL                    = $EMAIL
+        ACCOUNT_ID               = $ACCOUNT_ID
+        INVITE_RESPONSE          = $INVITE_RESPONSE.data
+        PRODUCT_ACCESS_ASSIGNED  = (-not $SKIP_PRODUCT_ACCESS)
+        WORKSPACE_RESOURCE_ID    = $WORKSPACE_RESOURCE_ID
+        PRODUCT_ROLE             = if ($SKIP_PRODUCT_ACCESS) { $null } else { $PRODUCT_ROLE }
+        ORG_ADMIN_ASSIGNED       = $GRANT_ORG_ADMIN
+        VERIFIED_DOMAIN_DETECTED = $EMAIL_DOMAIN_IS_VERIFIED
+        LOCAL_AUTH_GUIDANCE      = $LOCAL_AUTH_GUIDANCE
+    } | ConvertTo-Json -Depth 20 -Compress
 
 }
 

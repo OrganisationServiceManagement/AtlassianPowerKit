@@ -1,0 +1,24 @@
+# Copy this file to .env and fill in the real values.
+# Do not commit .env.
+
+# Required for AtlassianPowerKit runtime
+AtlassianPowerKit_PROFILE_NAME=default
+AtlassianPowerKit_ENDPOINT=example.atlassian.net
+AtlassianPowerKit_UserName=user@example.com
+AtlassianPowerKit_APIKey=your_atlassian_api_token
+
+# Optional runtime settings
+OSM_HOME=./osm_home
+OSM_INSTALL=.
+AtlassianPowerKit_AdminAPIKey=
+
+# Required for build_and_push.ps1
+DOCKER_IMAGE_NAME=markz0r/atlassian-powerkit
+
+# Optional build_and_push.ps1 settings
+# Leave DOCKER_IMAGE_VERSION empty to use the timestamp default.
+DOCKER_IMAGE_VERSION=
+DOCKER_PUSH=false
+DOCKER_LATEST=false
+DOCKER_TEST_RUN=false
+DOCKER_MULTI_ARCH=false

@@ -110,6 +110,874 @@ function ConvertTo-JSONMarkdownList {
     return $markdown
 }
 
+function Invoke-JiraExportRequestWithRetry {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [uri]$Uri,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Headers,
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Get', 'Post')]
+        [string]$Method = 'Get',
+        [Parameter(Mandatory = $false)]
+        [string]$Body,
+        [Parameter(Mandatory = $false)]
+        [string]$ContentType = 'application/json',
+        [Parameter(Mandatory = $false)]
+        [string]$OutFile,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(0, 10)]
+        [int]$MaximumRetryCount = 4,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 300)]
+        [int]$MaximumBackoffSeconds = 30
+    )
+
+    $retryCount = 0
+    while ($true) {
+        try {
+            $requestParameters = @{
+                Uri         = $Uri
+                Headers     = $Headers
+                Method      = $Method
+                ContentType = $ContentType
+                ErrorAction = 'Stop'
+                Debug       = $false
+            }
+            if ($PSBoundParameters.ContainsKey('Body')) {
+                $requestParameters.Body = $Body
+            }
+            if (-not [string]::IsNullOrWhiteSpace($OutFile)) {
+                $requestParameters.OutFile = $OutFile
+            }
+
+            # Invoke-RestMethod debug output can include Authorization headers.
+            return Invoke-RestMethod @requestParameters
+        } catch {
+            $requestError = $_
+            $response = $requestError.Exception.Response
+            $statusCode = if ($null -ne $response) {
+                try { [int]$response.StatusCode } catch { $null }
+            } else {
+                $null
+            }
+
+            $retryAfterSeconds = $null
+            if ($null -ne $response -and $null -ne $response.Headers) {
+                $retryAfter = $null
+                try {
+                    $retryAfter = $response.Headers['Retry-After']
+                } catch {
+                    # HttpResponseHeaders does not expose an indexer on every supported PowerShell version.
+                    $retryAfter = $null
+                }
+
+                if ($null -ne $response.Headers.PSObject.Properties['RetryAfter']) {
+                    $typedRetryAfter = $response.Headers.RetryAfter
+                    if ($null -ne $typedRetryAfter) {
+                        if ($null -ne $typedRetryAfter.Delta) {
+                            $retryAfterSeconds = [math]::Max(0, [math]::Ceiling($typedRetryAfter.Delta.TotalSeconds))
+                        } elseif ($null -ne $typedRetryAfter.Date) {
+                            $retryAfterSeconds = [math]::Max(0, [math]::Ceiling(($typedRetryAfter.Date - [DateTimeOffset]::UtcNow).TotalSeconds))
+                        }
+                    }
+                }
+
+                if ($null -eq $retryAfterSeconds -and $null -ne $retryAfter) {
+                    $retryAfterText = [string](@($retryAfter)[0])
+                    [double]$retryAfterNumber = 0
+                    if ([double]::TryParse($retryAfterText, [Globalization.NumberStyles]::Number, [Globalization.CultureInfo]::InvariantCulture, [ref]$retryAfterNumber)) {
+                        $retryAfterSeconds = [math]::Max(0, [math]::Ceiling($retryAfterNumber))
+                    } else {
+                        [DateTimeOffset]$retryAfterDate = [DateTimeOffset]::MinValue
+                        if ([DateTimeOffset]::TryParse($retryAfterText, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$retryAfterDate)) {
+                            $retryAfterSeconds = [math]::Max(0, [math]::Ceiling(($retryAfterDate - [DateTimeOffset]::UtcNow).TotalSeconds))
+                        }
+                    }
+                }
+            }
+
+            $isRateLimited = $statusCode -eq 429
+            $isRetryableServiceUnavailable = $statusCode -eq 503 -and $null -ne $retryAfterSeconds
+            if ((-not $isRateLimited -and -not $isRetryableServiceUnavailable) -or $retryCount -ge $MaximumRetryCount) {
+                throw $requestError
+            }
+
+            $retryCount++
+            $baseDelaySeconds = if ($null -ne $retryAfterSeconds) {
+                [double]$retryAfterSeconds
+            } else {
+                [math]::Min([double]$MaximumBackoffSeconds, 5.0 * [math]::Pow(2, $retryCount - 1))
+            }
+            $delayMilliseconds = [long][math]::Ceiling(($baseDelaySeconds + ($baseDelaySeconds * 0.2 * [System.Random]::new().NextDouble())) * 1000)
+            Write-Warning "Jira returned HTTP $statusCode for '$Uri'. Retrying in $([math]::Round($delayMilliseconds / 1000, 3)) seconds (retry $retryCount of $MaximumRetryCount)."
+            Start-Sleep -Milliseconds $delayMilliseconds
+        }
+    }
+}
+
+function Test-JiraExportValuePopulated {
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    if ($Value -is [string]) {
+        return -not [string]::IsNullOrWhiteSpace($Value)
+    }
+    if ($Value -is [System.Collections.IDictionary]) {
+        return $Value.Count -gt 0
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $enumerator = $Value.GetEnumerator()
+        try {
+            return $enumerator.MoveNext()
+        } finally {
+            if ($enumerator -is [System.IDisposable]) {
+                $enumerator.Dispose()
+            }
+        }
+    }
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        return $Value.PSObject.Properties.Count -gt 0
+    }
+    return $true
+}
+
+function Get-JiraExportSafeFileName {
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [string]$Fallback
+    )
+
+    $safeName = ($Name -replace '[<>:"/\\|?*\x00-\x1F]', '_').Trim().TrimEnd('.')
+    if ([string]::IsNullOrWhiteSpace($safeName)) {
+        $safeName = $Fallback
+    }
+    if ($safeName.Length -gt 160) {
+        $safeName = $safeName.Substring(0, 160).TrimEnd().TrimEnd('.')
+    }
+    if ($safeName -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
+        $safeName = "_$safeName"
+    }
+    return $safeName
+}
+
+function Test-JiraExportVersionEqual {
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$Left,
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$Right
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    [DateTimeOffset]$leftTimestamp = [DateTimeOffset]::MinValue
+    [DateTimeOffset]$rightTimestamp = [DateTimeOffset]::MinValue
+    if ([DateTimeOffset]::TryParse($Left, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$leftTimestamp) -and
+        [DateTimeOffset]::TryParse($Right, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$rightTimestamp)) {
+        return $leftTimestamp.ToUniversalTime().Ticks -eq $rightTimestamp.ToUniversalTime().Ticks
+    }
+    return $Left.Equals($Right, [System.StringComparison]::Ordinal)
+}
+
+function Get-JiraExportLocalAttachmentPath {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$IssueDirectory,
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$RelativePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        return $null
+    }
+    $issueDirectoryFullPath = [System.IO.Path]::GetFullPath($IssueDirectory).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $relativePlatformPath = $RelativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+    $candidatePath = [System.IO.Path]::GetFullPath((Join-Path -Path $IssueDirectory -ChildPath $relativePlatformPath))
+    if (-not $candidatePath.StartsWith($issueDirectoryFullPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $null
+    }
+    return $candidatePath
+}
+
+function Test-JiraExportAttachmentFile {
+    param (
+        [Parameter(Mandatory = $true)]
+        [object]$AttachmentExport,
+        [Parameter(Mandatory = $true)]
+        [string]$IssueDirectory
+    )
+
+    $attachmentPath = Get-JiraExportLocalAttachmentPath -IssueDirectory $IssueDirectory -RelativePath ([string]$AttachmentExport.localRelativePath)
+    if ([string]::IsNullOrWhiteSpace($attachmentPath) -or -not (Test-Path -LiteralPath $attachmentPath -PathType Leaf)) {
+        return $false
+    }
+    $attachmentFile = Get-Item -LiteralPath $attachmentPath
+    [long]$recordedSize = 0
+    if ([long]::TryParse([string]$AttachmentExport.downloadedSize, [ref]$recordedSize) -and $recordedSize -ge 0 -and $attachmentFile.Length -ne $recordedSize) {
+        return $false
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$AttachmentExport.sha256)) {
+        $actualHash = (Get-FileHash -LiteralPath $attachmentPath -Algorithm SHA256).Hash
+        if (-not $actualHash.Equals([string]$AttachmentExport.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function ConvertFrom-JiraAdfToMarkdown {
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Document
+    )
+
+    function Convert-JiraAdfNode {
+        param (
+            [Parameter(Mandatory = $false)]
+            [AllowNull()]
+            [object]$Node
+        )
+
+        if ($null -eq $Node) {
+            return ''
+        }
+        if ($Node -is [string]) {
+            return $Node
+        }
+
+        $nodeType = [string]$Node.type
+        if ($nodeType -eq 'text') {
+            $text = [string]$Node.text
+            foreach ($mark in @($Node.marks)) {
+                switch ([string]$mark.type) {
+                    'code' { $text = '``' + ($text -replace '``', '\``') + '``' }
+                    'strong' { $text = '**' + $text + '**' }
+                    'em' { $text = '*' + $text + '*' }
+                    'strike' { $text = '~~' + $text + '~~' }
+                    'link' {
+                        $href = [string]$mark.attrs.href
+                        if (-not [string]::IsNullOrWhiteSpace($href)) {
+                            $text = '[' + $text + '](' + ($href -replace '\)', '%29') + ')'
+                        }
+                    }
+                }
+            }
+            return $text
+        }
+
+        $childText = -join @(foreach ($child in @($Node.content)) { Convert-JiraAdfNode -Node $child })
+        switch ($nodeType) {
+            'doc' { return $childText.TrimEnd() }
+            'paragraph' { return $childText.TrimEnd() + "`n`n" }
+            'heading' {
+                $level = [math]::Min(6, [math]::Max(1, [int]$Node.attrs.level))
+                return ('#' * $level) + ' ' + $childText.Trim() + "`n`n"
+            }
+            'hardBreak' { return "  `n" }
+            'rule' { return "---`n`n" }
+            'blockquote' {
+                $quoted = ($childText.Trim() -split "`r?`n" | ForEach-Object { "> $_" }) -join "`n"
+                return $quoted + "`n`n"
+            }
+            'codeBlock' {
+                $language = [string]$Node.attrs.language
+                return "````$language`n$($childText.TrimEnd())`n`````n`n"
+            }
+            'bulletList' {
+                $items = foreach ($item in @($Node.content)) {
+                    $itemText = (-join @(foreach ($child in @($item.content)) { Convert-JiraAdfNode -Node $child })).Trim()
+                    '- ' + ($itemText -replace "`r?`n", "`n  ")
+                }
+                return ($items -join "`n") + "`n`n"
+            }
+            'orderedList' {
+                $ordinal = if ($Node.attrs.order) { [int]$Node.attrs.order } else { 1 }
+                $items = foreach ($item in @($Node.content)) {
+                    $itemText = (-join @(foreach ($child in @($item.content)) { Convert-JiraAdfNode -Node $child })).Trim()
+                    $line = "$ordinal. " + ($itemText -replace "`r?`n", "`n   ")
+                    $ordinal++
+                    $line
+                }
+                return ($items -join "`n") + "`n`n"
+            }
+            'listItem' { return $childText }
+            'mention' {
+                $mentionText = [string]$Node.attrs.text
+                if ([string]::IsNullOrWhiteSpace($mentionText)) { $mentionText = [string]$Node.attrs.id }
+                return $mentionText
+            }
+            'emoji' {
+                $emojiText = [string]$Node.attrs.text
+                if ([string]::IsNullOrWhiteSpace($emojiText)) { $emojiText = [string]$Node.attrs.shortName }
+                return $emojiText
+            }
+            'inlineCard' {
+                $cardUrl = [string]$Node.attrs.url
+                return if ([string]::IsNullOrWhiteSpace($cardUrl)) { $childText } else { "<$cardUrl>" }
+            }
+            'media' {
+                $mediaId = [string]$Node.attrs.id
+                return if ([string]::IsNullOrWhiteSpace($mediaId)) { '[embedded media]' } else { "[embedded media: $mediaId]" }
+            }
+            default { return $childText }
+        }
+    }
+
+    return (Convert-JiraAdfNode -Node $Document).Trim()
+}
+
+function ConvertTo-JiraExportMarkdownValue {
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ''
+    }
+    if ($null -ne $Value.PSObject.Properties['type'] -and [string]$Value.type -eq 'doc') {
+        return ConvertFrom-JiraAdfToMarkdown -Document $Value
+    }
+    if ($Value -is [string] -or $Value.GetType().IsPrimitive -or $Value -is [decimal] -or $Value -is [DateTime] -or $Value -is [DateTimeOffset]) {
+        return [string]$Value
+    }
+
+    $items = if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [System.Collections.IDictionary]) { @($Value) } else { @() }
+    if ($items.Count -gt 0 -and @($items | Where-Object { $_ -isnot [string] -and -not $_.GetType().IsPrimitive }).Count -eq 0) {
+        return ($items | ForEach-Object { "- $_" }) -join "`n"
+    }
+
+    return "````json`n$($Value | ConvertTo-Json -Depth 100)`n````"
+}
+
+function Export-JiraProjectIssues {
+    <#
+    .SYNOPSIS
+        Exports every visible issue in a Jira project as Markdown, filtered JSON, and attachment files.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'The function exports the complete issue collection for one project and follows this module''s existing plural naming convention.')]
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[A-Za-z][A-Za-z0-9_]{1,254}$')]
+        [string]$PROJECT_KEY,
+        [Parameter(Mandatory = $false)]
+        [string]$OUTPUT_DIRECTORY,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(0, 10)]
+        [int]$MAX_RETRY_COUNT = 4,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 300)]
+        [int]$MAX_BACKOFF_SECONDS = 30
+    )
+
+    $requiredEnvironmentVariables = @('AtlassianPowerKit_ENDPOINT', 'AtlassianPowerKit_AtlassianAPIHeaders')
+    if ([string]::IsNullOrWhiteSpace($OUTPUT_DIRECTORY)) {
+        $requiredEnvironmentVariables += @('OSM_HOME', 'AtlassianPowerKit_PROFILE_NAME')
+    }
+    $missingEnvironmentVariables = $requiredEnvironmentVariables | Where-Object {
+        [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_, 'Process'))
+    }
+    if ($missingEnvironmentVariables) {
+        throw "Missing required environment variable(s): $($missingEnvironmentVariables -join ', ')."
+    }
+
+    try {
+        $requestHeaders = ConvertFrom-Json -InputObject $env:AtlassianPowerKit_AtlassianAPIHeaders -AsHashtable
+    } catch {
+        throw "AtlassianPowerKit_AtlassianAPIHeaders is not valid JSON: $($_.Exception.Message)"
+    }
+    if ($requestHeaders -isnot [System.Collections.IDictionary]) {
+        throw 'AtlassianPowerKit_AtlassianAPIHeaders must contain a JSON object.'
+    }
+
+    $configuredEndpoint = $env:AtlassianPowerKit_ENDPOINT.Trim().TrimEnd('/')
+    $baseUri = if ($configuredEndpoint -match '^https?://') { [uri]$configuredEndpoint } else { [uri]"https://$configuredEndpoint" }
+    if ($baseUri.Scheme -ne 'https' -or [string]::IsNullOrWhiteSpace($baseUri.Host) -or $baseUri.UserInfo) {
+        throw 'AtlassianPowerKit_ENDPOINT must be an HTTPS URI or hostname without embedded credentials.'
+    }
+
+    $exportedAt = [DateTimeOffset]::UtcNow
+    $exportTimestamp = $exportedAt.ToString('yyyyMMdd-HHmmssfff')
+    if ([string]::IsNullOrWhiteSpace($OUTPUT_DIRECTORY)) {
+        $projectExportsRoot = Join-Path -Path $env:OSM_HOME -ChildPath $env:AtlassianPowerKit_PROFILE_NAME
+        $projectExportsRoot = Join-Path -Path $projectExportsRoot -ChildPath 'JIRA'
+        $projectExportsRoot = Join-Path -Path $projectExportsRoot -ChildPath 'Project-Exports'
+        $stableOutputDirectory = Join-Path -Path $projectExportsRoot -ChildPath ($PROJECT_KEY.ToUpperInvariant())
+        $OUTPUT_DIRECTORY = $stableOutputDirectory
+        if (-not (Test-Path -LiteralPath $stableOutputDirectory) -and (Test-Path -LiteralPath $projectExportsRoot -PathType Container)) {
+            $legacyExportDirectories = Get-ChildItem -LiteralPath $projectExportsRoot -Directory -Filter "$($PROJECT_KEY.ToUpperInvariant())-*" | Sort-Object LastWriteTime -Descending
+            foreach ($legacyExportDirectory in $legacyExportDirectories) {
+                $legacyManifestPath = Join-Path -Path $legacyExportDirectory.FullName -ChildPath 'manifest.json'
+                if (-not (Test-Path -LiteralPath $legacyManifestPath -PathType Leaf)) {
+                    continue
+                }
+                try {
+                    $legacyManifest = Get-Content -LiteralPath $legacyManifestPath -Raw | ConvertFrom-Json -Depth 100
+                    if (([string]$legacyManifest.project.key).Equals($PROJECT_KEY, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $OUTPUT_DIRECTORY = $legacyExportDirectory.FullName
+                        Write-Debug "Adopting legacy timestamped Jira export directory '$OUTPUT_DIRECTORY' for version-aware updates."
+                        break
+                    }
+                } catch {
+                    Write-Warning "Ignoring invalid legacy Jira export manifest '$legacyManifestPath'. $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+    $OUTPUT_DIRECTORY = [System.IO.Path]::GetFullPath($OUTPUT_DIRECTORY)
+    $outputDirectoryExists = Test-Path -LiteralPath $OUTPUT_DIRECTORY
+    if ($outputDirectoryExists) {
+        if (-not (Test-Path -LiteralPath $OUTPUT_DIRECTORY -PathType Container)) {
+            throw "Output path '$OUTPUT_DIRECTORY' exists and is not a directory."
+        }
+        $existingOutputItems = @(Get-ChildItem -LiteralPath $OUTPUT_DIRECTORY -Force | Select-Object -First 1)
+        $existingManifestPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'manifest.json'
+        if ($existingOutputItems.Count -gt 0 -and -not (Test-Path -LiteralPath $existingManifestPath -PathType Leaf)) {
+            throw "Non-empty output directory '$OUTPUT_DIRECTORY' does not contain an existing Jira export manifest."
+        }
+        if (Test-Path -LiteralPath $existingManifestPath -PathType Leaf) {
+            try {
+                $existingManifest = Get-Content -LiteralPath $existingManifestPath -Raw | ConvertFrom-Json -Depth 100
+            } catch {
+                throw "Existing Jira export manifest '$existingManifestPath' is invalid: $($_.Exception.Message)"
+            }
+            if (-not ([string]$existingManifest.project.key).Equals($PROJECT_KEY, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Output directory '$OUTPUT_DIRECTORY' contains an export for project '$($existingManifest.project.key)', not '$PROJECT_KEY'."
+            }
+        }
+    }
+
+    $encodedProjectKey = [uri]::EscapeDataString($PROJECT_KEY)
+    $projectUri = [uri]::new($baseUri, "/rest/api/3/project/$encodedProjectKey")
+    $project = Invoke-JiraExportRequestWithRetry -Uri $projectUri -Headers $requestHeaders -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS
+    if ([string]::IsNullOrWhiteSpace([string]$project.key) -or -not ([string]$project.key).Equals($PROJECT_KEY, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Jira returned project key '$($project.key)' while resolving requested project '$PROJECT_KEY'."
+    }
+
+    $fieldUri = [uri]::new($baseUri, '/rest/api/3/field')
+    $jiraFields = @(Invoke-JiraExportRequestWithRetry -Uri $fieldUri -Headers $requestHeaders -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS)
+    $fieldNameById = @{}
+    foreach ($jiraField in $jiraFields) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$jiraField.id)) {
+            $fieldNameById[[string]$jiraField.id] = [string]$jiraField.name
+        }
+    }
+
+    $jql = "project = `"$($PROJECT_KEY.ToUpperInvariant())`" ORDER BY key ASC"
+    $searchUri = [uri]::new($baseUri, '/rest/api/3/search/jql')
+    $searchBody = [ordered]@{
+        jql          = $jql
+        fields       = @('*all')
+        fieldsByKeys = $false
+        maxResults   = 100
+        expand       = 'names,schema'
+    }
+    $issues = [System.Collections.Generic.List[object]]::new()
+    $seenIssueKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $seenPageTokens = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    do {
+        $searchResponse = Invoke-JiraExportRequestWithRetry -Uri $searchUri -Headers $requestHeaders -Method Post -Body ($searchBody | ConvertTo-Json -Depth 10 -Compress) -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS
+        foreach ($nameProperty in @($searchResponse.names.PSObject.Properties)) {
+            $fieldNameById[$nameProperty.Name] = [string]$nameProperty.Value
+        }
+        foreach ($issue in @($searchResponse.issues)) {
+            if ([string]::IsNullOrWhiteSpace([string]$issue.key) -or -not $seenIssueKeys.Add([string]$issue.key)) {
+                throw "Jira returned an empty or repeated issue key '$($issue.key)' while exporting project '$PROJECT_KEY'."
+            }
+            [void]$issues.Add($issue)
+        }
+
+        $nextPageToken = [string]$searchResponse.nextPageToken
+        if ([bool]$searchResponse.isLast) {
+            $nextPageToken = $null
+        } elseif ([string]::IsNullOrWhiteSpace($nextPageToken)) {
+            throw "Jira marked the issue-search response as incomplete but returned no nextPageToken for project '$PROJECT_KEY'."
+        } elseif (-not $seenPageTokens.Add($nextPageToken)) {
+            throw "Jira returned a repeated issue-search nextPageToken while exporting project '$PROJECT_KEY'."
+        }
+
+        if ($null -ne $nextPageToken) {
+            $searchBody.nextPageToken = $nextPageToken
+        }
+    } while ($null -ne $nextPageToken)
+
+    if (-not $outputDirectoryExists) {
+        New-Item -ItemType Directory -Path $OUTPUT_DIRECTORY -Force | Out-Null
+    }
+
+    $archiveRoot = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'Archive'
+    $issueManifestEntries = [System.Collections.Generic.List[object]]::new()
+    $indexRows = [System.Collections.Generic.List[string]]::new()
+    $exportedCount = 0
+    $skippedCount = 0
+    $updatedCount = 0
+    $repairedCount = 0
+    $downloadedAttachmentCount = 0
+    $reusedAttachmentCount = 0
+    foreach ($issue in $issues) {
+        $issueKey = [string]$issue.key
+        if ([string]::IsNullOrWhiteSpace($issueKey)) {
+            throw "Jira returned an issue without a key while exporting project '$PROJECT_KEY'."
+        }
+        $sourceUpdated = [string]$issue.fields.updated
+        if ([string]::IsNullOrWhiteSpace($sourceUpdated)) {
+            throw "Jira returned no 'updated' value for issue '$issueKey'; a current-version comparison cannot be made safely."
+        }
+
+        $filteredFields = [ordered]@{}
+        $filteredFieldNames = [ordered]@{}
+        foreach ($fieldProperty in @($issue.fields.PSObject.Properties)) {
+            $fieldId = [string]$fieldProperty.Name
+            if ($fieldId -in @('comment', 'attachment') -or -not (Test-JiraExportValuePopulated -Value $fieldProperty.Value)) {
+                continue
+            }
+            $filteredFields[$fieldId] = $fieldProperty.Value
+            $fieldName = if ($fieldNameById.ContainsKey($fieldId) -and -not [string]::IsNullOrWhiteSpace($fieldNameById[$fieldId])) {
+                $fieldNameById[$fieldId]
+            } else {
+                $fieldId
+            }
+            $filteredFieldNames[$fieldId] = $fieldName
+        }
+
+        $issueDirectoryName = Get-JiraExportSafeFileName -Name $issueKey -Fallback "issue-$($issue.id)"
+        $issueDirectory = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath $issueDirectoryName
+        $jsonPath = Join-Path -Path $issueDirectory -ChildPath "$issueKey.json"
+        $markdownPath = Join-Path -Path $issueDirectory -ChildPath "$issueKey.md"
+        $sourceAttachments = @($issue.fields.attachment)
+        $existingIssueExport = $null
+        $existingSourceUpdated = $null
+        if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
+            try {
+                $existingIssueExport = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json -Depth 100
+                $existingSourceUpdated = [string]$existingIssueExport.issue.updated
+                if ([string]::IsNullOrWhiteSpace($existingSourceUpdated)) {
+                    $existingSourceUpdated = [string]$existingIssueExport.fields.updated
+                }
+            } catch {
+                Write-Warning "Existing Jira issue export '$jsonPath' is invalid and will be replaced and archived. $($_.Exception.Message)"
+                $existingIssueExport = $null
+            }
+        }
+
+        $existingAttachmentById = @{}
+        foreach ($existingAttachment in @($existingIssueExport.attachments)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$existingAttachment.id)) {
+                $existingAttachmentById[[string]$existingAttachment.id] = $existingAttachment
+            }
+        }
+
+        $isCurrentExport = $null -ne $existingIssueExport -and
+            (Test-Path -LiteralPath $markdownPath -PathType Leaf) -and
+            (Test-JiraExportVersionEqual -Left $sourceUpdated -Right $existingSourceUpdated) -and
+            $sourceAttachments.Count -eq @($existingIssueExport.attachments).Count
+        if ($isCurrentExport) {
+            foreach ($sourceAttachment in $sourceAttachments) {
+                $sourceAttachmentId = [string]$sourceAttachment.id
+                if (-not $existingAttachmentById.ContainsKey($sourceAttachmentId)) {
+                    $isCurrentExport = $false
+                    break
+                }
+                $existingAttachment = $existingAttachmentById[$sourceAttachmentId]
+                [long]$sourceSize = 0
+                [long]$existingSize = 0
+                $sourceHasSize = [long]::TryParse([string]$sourceAttachment.size, [ref]$sourceSize)
+                $existingHasSize = [long]::TryParse([string]$existingAttachment.size, [ref]$existingSize)
+                if (($sourceHasSize -and $existingHasSize -and $sourceSize -ne $existingSize) -or
+                    -not (Test-JiraExportAttachmentFile -AttachmentExport $existingAttachment -IssueDirectory $issueDirectory)) {
+                    $isCurrentExport = $false
+                    break
+                }
+            }
+        }
+
+        $archivedPreviousVersion = $null
+        $issueDownloadedAttachmentCount = 0
+        $issueReusedAttachmentCount = 0
+        if ($isCurrentExport) {
+            $comments = @($existingIssueExport.comments)
+            $attachmentExports = @($existingIssueExport.attachments)
+            $exportStatus = 'SkippedCurrentVersion'
+            $issueReusedAttachmentCount = $attachmentExports.Count
+            $reusedAttachmentCount += $issueReusedAttachmentCount
+            $skippedCount++
+            Write-Debug "Skipping Jira issue '$issueKey'; source updated value '$sourceUpdated' and all attachment files match the current local export."
+        } else {
+            $stagingDirectory = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath ".staging-$issueDirectoryName-$([guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $stagingDirectory -Force | Out-Null
+            try {
+                $commentsList = [System.Collections.Generic.List[object]]::new()
+                $commentIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+                $commentStartAt = 0
+                do {
+                    $commentUri = [uri]::new($baseUri, "/rest/api/3/issue/$([uri]::EscapeDataString($issueKey))/comment?startAt=$commentStartAt&maxResults=100&orderBy=created")
+                    $commentResponse = Invoke-JiraExportRequestWithRetry -Uri $commentUri -Headers $requestHeaders -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS
+                    foreach ($comment in @($commentResponse.comments)) {
+                        $commentId = [string]$comment.id
+                        if ([string]::IsNullOrWhiteSpace($commentId) -or $commentIds.Add($commentId)) {
+                            [void]$commentsList.Add($comment)
+                        }
+                    }
+                    $returnedCommentCount = @($commentResponse.comments).Count
+                    $commentStartAt = [int]$commentResponse.startAt + $returnedCommentCount
+                    $commentTotal = [int]$commentResponse.total
+                    if ($returnedCommentCount -eq 0 -and $commentStartAt -lt $commentTotal) {
+                        throw "Jira returned an empty comment page before all $commentTotal comments were retrieved for issue '$issueKey'."
+                    }
+                } while ($returnedCommentCount -gt 0 -and $commentStartAt -lt $commentTotal)
+                $comments = [object[]]$commentsList
+
+                $attachmentExportsList = [System.Collections.Generic.List[object]]::new()
+                if ($sourceAttachments.Count -gt 0) {
+                    $stagingAttachmentDirectory = Join-Path -Path $stagingDirectory -ChildPath 'attachments'
+                    New-Item -ItemType Directory -Path $stagingAttachmentDirectory -Force | Out-Null
+                    foreach ($attachment in $sourceAttachments) {
+                        $attachmentId = [string]$attachment.id
+                        if ($attachmentId -notmatch '^\d+$') {
+                            throw "Jira issue '$issueKey' returned an attachment without a valid numeric ID."
+                        }
+                        $safeAttachmentName = Get-JiraExportSafeFileName -Name ([string]$attachment.filename) -Fallback "attachment-$attachmentId"
+                        $localAttachmentName = "$attachmentId-$safeAttachmentName"
+                        $stagingAttachmentPath = Join-Path -Path $stagingAttachmentDirectory -ChildPath $localAttachmentName
+                        $attachmentWasReused = $false
+                        if ($existingAttachmentById.ContainsKey($attachmentId)) {
+                            $existingAttachment = $existingAttachmentById[$attachmentId]
+                            [long]$sourceSize = 0
+                            [long]$existingSize = 0
+                            $sourceHasSize = [long]::TryParse([string]$attachment.size, [ref]$sourceSize)
+                            $existingHasSize = [long]::TryParse([string]$existingAttachment.size, [ref]$existingSize)
+                            $sizeMatches = -not ($sourceHasSize -and $existingHasSize) -or $sourceSize -eq $existingSize
+                            if ($sizeMatches -and (Test-JiraExportAttachmentFile -AttachmentExport $existingAttachment -IssueDirectory $issueDirectory)) {
+                                $existingAttachmentPath = Get-JiraExportLocalAttachmentPath -IssueDirectory $issueDirectory -RelativePath ([string]$existingAttachment.localRelativePath)
+                                Copy-Item -LiteralPath $existingAttachmentPath -Destination $stagingAttachmentPath
+                                $attachmentWasReused = $true
+                                $issueReusedAttachmentCount++
+                            }
+                        }
+
+                        if (-not $attachmentWasReused) {
+                            $temporaryAttachmentPath = "$stagingAttachmentPath.partial-$([guid]::NewGuid().ToString('N'))"
+                            $attachmentUri = [uri]::new($baseUri, "/rest/api/3/attachment/content/$attachmentId?redirect=false")
+                            $attachmentContentType = if ([string]::IsNullOrWhiteSpace([string]$attachment.mimeType)) { 'application/octet-stream' } else { [string]$attachment.mimeType }
+                            try {
+                                Invoke-JiraExportRequestWithRetry -Uri $attachmentUri -Headers $requestHeaders -OutFile $temporaryAttachmentPath -ContentType $attachmentContentType -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS | Out-Null
+                                if (-not (Test-Path -LiteralPath $temporaryAttachmentPath -PathType Leaf)) {
+                                    throw "Jira returned no attachment file for attachment '$attachmentId' on issue '$issueKey'."
+                                }
+                                $downloadedAttachment = Get-Item -LiteralPath $temporaryAttachmentPath
+                                [long]$expectedAttachmentSize = 0
+                                if ([long]::TryParse([string]$attachment.size, [ref]$expectedAttachmentSize) -and $expectedAttachmentSize -ge 0 -and $downloadedAttachment.Length -ne $expectedAttachmentSize) {
+                                    throw "Attachment '$attachmentId' on issue '$issueKey' downloaded $($downloadedAttachment.Length) bytes; Jira metadata reports $expectedAttachmentSize bytes."
+                                }
+                                Move-Item -LiteralPath $temporaryAttachmentPath -Destination $stagingAttachmentPath
+                                $issueDownloadedAttachmentCount++
+                            } catch {
+                                if (Test-Path -LiteralPath $temporaryAttachmentPath -PathType Leaf) {
+                                    Remove-Item -LiteralPath $temporaryAttachmentPath -Force
+                                }
+                                throw
+                            }
+                        }
+
+                        $attachmentExport = [ordered]@{}
+                        foreach ($attachmentProperty in @($attachment.PSObject.Properties)) {
+                            $attachmentExport[$attachmentProperty.Name] = $attachmentProperty.Value
+                        }
+                        $attachmentExport.localRelativePath = "attachments/$localAttachmentName"
+                        $attachmentExport.sha256 = (Get-FileHash -LiteralPath $stagingAttachmentPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                        $attachmentExport.downloadedSize = (Get-Item -LiteralPath $stagingAttachmentPath).Length
+                        [void]$attachmentExportsList.Add([pscustomobject]$attachmentExport)
+                    }
+                }
+                $attachmentExports = [object[]]$attachmentExportsList
+
+                $browseUri = [uri]::new($baseUri, "/browse/$issueKey").AbsoluteUri
+                $issueExport = [ordered]@{
+                    schemaVersion = 2
+                    exportedAt    = $exportedAt.ToString('o')
+                    site           = $baseUri.AbsoluteUri.TrimEnd('/')
+                    project        = [ordered]@{ id = [string]$project.id; key = [string]$project.key; name = [string]$project.name }
+                    issue          = [ordered]@{ id = [string]$issue.id; key = $issueKey; self = [string]$issue.self; browseUrl = $browseUri; updated = $sourceUpdated }
+                    fieldNames     = $filteredFieldNames
+                    fields         = $filteredFields
+                    comments       = $comments
+                    attachments    = $attachmentExports
+                }
+                $stagingJsonPath = Join-Path -Path $stagingDirectory -ChildPath "$issueKey.json"
+                Set-Content -LiteralPath $stagingJsonPath -Value ($issueExport | ConvertTo-Json -Depth 100) -Encoding utf8 -NoNewline
+
+                $summary = if ($filteredFields.Contains('summary')) { [string]$filteredFields.summary } else { $issueKey }
+                $markdown = [System.Text.StringBuilder]::new()
+                [void]$markdown.AppendLine("# $issueKey - $($summary -replace '[\r\n]+', ' ')")
+                [void]$markdown.AppendLine()
+                [void]$markdown.AppendLine("- Jira: [$issueKey]($browseUri)")
+                [void]$markdown.AppendLine("- Project: $($project.name) ($($project.key))")
+                [void]$markdown.AppendLine("- Jira updated: $sourceUpdated")
+                [void]$markdown.AppendLine("- Exported: $($exportedAt.ToString('o'))")
+                [void]$markdown.AppendLine()
+                [void]$markdown.AppendLine('## Populated fields')
+                [void]$markdown.AppendLine()
+                foreach ($fieldEntry in $filteredFields.GetEnumerator()) {
+                    $fieldId = [string]$fieldEntry.Key
+                    $fieldName = ([string]$filteredFieldNames[$fieldId]) -replace '[\r\n]+', ' '
+                    [void]$markdown.AppendLine("### $fieldName ($fieldId)")
+                    [void]$markdown.AppendLine()
+                    [void]$markdown.AppendLine((ConvertTo-JiraExportMarkdownValue -Value $fieldEntry.Value))
+                    [void]$markdown.AppendLine()
+                }
+
+                [void]$markdown.AppendLine("## Comments ($(@($comments).Count))")
+                [void]$markdown.AppendLine()
+                if (@($comments).Count -eq 0) {
+                    [void]$markdown.AppendLine('_No visible comments._')
+                    [void]$markdown.AppendLine()
+                } else {
+                    foreach ($comment in @($comments)) {
+                        $commentAuthor = if (-not [string]::IsNullOrWhiteSpace([string]$comment.author.displayName)) { [string]$comment.author.displayName } else { 'Unknown author' }
+                        [void]$markdown.AppendLine("### $commentAuthor - $($comment.created) (comment $($comment.id))")
+                        [void]$markdown.AppendLine()
+                        if ($comment.visibility) {
+                            [void]$markdown.AppendLine("Visibility: $($comment.visibility.type) - $($comment.visibility.value)")
+                            [void]$markdown.AppendLine()
+                        }
+                        [void]$markdown.AppendLine((ConvertTo-JiraExportMarkdownValue -Value $comment.body))
+                        [void]$markdown.AppendLine()
+                    }
+                }
+
+                [void]$markdown.AppendLine("## Attachments ($(@($attachmentExports).Count))")
+                [void]$markdown.AppendLine()
+                if (@($attachmentExports).Count -eq 0) {
+                    [void]$markdown.AppendLine('_No visible attachments._')
+                } else {
+                    foreach ($attachmentExport in @($attachmentExports)) {
+                        $markdownAttachmentPath = 'attachments/' + [uri]::EscapeDataString(([string]$attachmentExport.localRelativePath).Substring('attachments/'.Length))
+                        [void]$markdown.AppendLine("- [$($attachmentExport.filename)]($markdownAttachmentPath) - $($attachmentExport.mimeType), $($attachmentExport.downloadedSize) bytes, SHA-256 ``$($attachmentExport.sha256)``")
+                    }
+                }
+                $stagingMarkdownPath = Join-Path -Path $stagingDirectory -ChildPath "$issueKey.md"
+                Set-Content -LiteralPath $stagingMarkdownPath -Value $markdown.ToString().TrimEnd() -Encoding utf8 -NoNewline
+
+                if (Test-Path -LiteralPath $issueDirectory -PathType Container) {
+                    $archiveVersion = if ([string]::IsNullOrWhiteSpace($existingSourceUpdated)) { "unknown-$exportTimestamp" } else { $existingSourceUpdated }
+                    $archiveVersionDirectoryName = Get-JiraExportSafeFileName -Name ("updated-" + ($archiveVersion -replace '[^0-9A-Za-z._-]', '-')) -Fallback "updated-unknown-$exportTimestamp"
+                    $archiveIssueDirectory = Join-Path -Path $archiveRoot -ChildPath $issueDirectoryName
+                    $archiveDestination = Join-Path -Path $archiveIssueDirectory -ChildPath $archiveVersionDirectoryName
+                    if (Test-Path -LiteralPath $archiveDestination) {
+                        $archiveDestination = "$archiveDestination-$exportTimestamp-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+                    }
+                    New-Item -ItemType Directory -Path $archiveIssueDirectory -Force | Out-Null
+                    Move-Item -LiteralPath $issueDirectory -Destination $archiveDestination
+                    $archivedPreviousVersion = $archiveDestination
+                }
+                Move-Item -LiteralPath $stagingDirectory -Destination $issueDirectory
+
+                if ($null -eq $existingIssueExport -and $null -eq $archivedPreviousVersion) {
+                    $exportStatus = 'Exported'
+                    $exportedCount++
+                } elseif (Test-JiraExportVersionEqual -Left $sourceUpdated -Right $existingSourceUpdated) {
+                    $exportStatus = 'RepairedAndArchived'
+                    $repairedCount++
+                } else {
+                    $exportStatus = 'UpdatedAndArchived'
+                    $updatedCount++
+                }
+                $downloadedAttachmentCount += $issueDownloadedAttachmentCount
+                $reusedAttachmentCount += $issueReusedAttachmentCount
+            } finally {
+                if (Test-Path -LiteralPath $stagingDirectory -PathType Container) {
+                    Remove-Item -LiteralPath $stagingDirectory -Recurse -Force
+                }
+            }
+        }
+
+        $summary = if ($filteredFields.Contains('summary')) { [string]$filteredFields.summary } else { $issueKey }
+        $relativeJsonPath = "$issueDirectoryName/$issueKey.json"
+        $relativeMarkdownPath = "$issueDirectoryName/$issueKey.md"
+        [void]$issueManifestEntries.Add([pscustomobject][ordered]@{
+            id                        = [string]$issue.id
+            key                       = $issueKey
+            sourceUpdated             = $sourceUpdated
+            exportStatus              = $exportStatus
+            summary                   = $summary
+            json                      = $relativeJsonPath
+            markdown                  = $relativeMarkdownPath
+            commentCount              = @($comments).Count
+            attachmentCount           = @($attachmentExports).Count
+            downloadedAttachmentCount = $issueDownloadedAttachmentCount
+            reusedAttachmentCount     = $issueReusedAttachmentCount
+            archivedPreviousVersion   = $archivedPreviousVersion
+        })
+        $indexSummary = ($summary -replace '\|', '\|' -replace '[\r\n]+', ' ')
+        $indexStatus = if ($filteredFields.Contains('status')) { [string]$filteredFields.status.name } else { '' }
+        [void]$indexRows.Add("| [$issueKey]($relativeMarkdownPath) | $indexSummary | $($indexStatus -replace '\|', '\|') | $sourceUpdated | $exportStatus | $(@($comments).Count) | $(@($attachmentExports).Count) |")
+    }
+
+    $manifest = [ordered]@{
+        schemaVersion = 2
+        exportedAt    = $exportedAt.ToString('o')
+        site           = $baseUri.AbsoluteUri.TrimEnd('/')
+        jql            = $jql
+        project        = $project
+        issueCount     = $issues.Count
+        exportedCount  = $exportedCount
+        skippedCount   = $skippedCount
+        updatedCount   = $updatedCount
+        repairedCount  = $repairedCount
+        downloadedAttachmentCount = $downloadedAttachmentCount
+        reusedAttachmentCount = $reusedAttachmentCount
+        issues         = [object[]]$issueManifestEntries
+    }
+    $manifestPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'manifest.json'
+    Set-Content -LiteralPath $manifestPath -Value ($manifest | ConvertTo-Json -Depth 100) -Encoding utf8 -NoNewline
+
+    $index = [System.Text.StringBuilder]::new()
+    [void]$index.AppendLine("# Jira project export - $($project.name) ($($project.key))")
+    [void]$index.AppendLine()
+    [void]$index.AppendLine("Exported $($issues.Count) visible issues at $($exportedAt.ToString('o')).")
+    [void]$index.AppendLine()
+    [void]$index.AppendLine('| Issue | Summary | Jira status | Jira updated | Export status | Comments | Attachments |')
+    [void]$index.AppendLine('| --- | --- | --- | --- | --- | ---: | ---: |')
+    foreach ($indexRow in $indexRows) {
+        [void]$index.AppendLine($indexRow)
+    }
+    $indexPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'README.md'
+    Set-Content -LiteralPath $indexPath -Value $index.ToString().TrimEnd() -Encoding utf8 -NoNewline
+
+    return [pscustomobject][ordered]@{
+        Result         = 'Success'
+        ProjectKey     = [string]$project.key
+        IssueCount     = $issues.Count
+        ExportedCount  = $exportedCount
+        SkippedCount   = $skippedCount
+        UpdatedCount   = $updatedCount
+        RepairedCount  = $repairedCount
+        DownloadedAttachmentCount = $downloadedAttachmentCount
+        ReusedAttachmentCount = $reusedAttachmentCount
+        OutputDirectory = $OUTPUT_DIRECTORY
+        ManifestFile   = $manifestPath
+        IndexFile      = $indexPath
+    }
+}
+
 function Export-RestorableJiraBackupJQL {
     param (
         [Parameter(Mandatory = $false)]
