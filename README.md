@@ -23,11 +23,11 @@ AtlassianPowerKit -FunctionName "Get-JiraIssue" -FunctionParameters @{"Key"="TES
 ```docker
 # Windows
 mkdir .\osm_home
-docker run --rm -v ${PWD}\osm_home:/mnt/osm -v "$Env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\:/root/.secretmanagement/" -it markz0r/atlassian-powerkit:latest
+docker run --rm -v ${PWD}\osm_home:/mnt/osm/osm_home -v "$Env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\:/root/.secretmanagement/" -it ghcr.io/organisationservicemanagement/atlassian-powerkit:latest
 
 # Linux
 mkdir ./osm_home
-docker run -it --rm -v ${PWD}/osm_home:/mnt/osm -v "$HOME/.local/share/powershell/secretmanagement/ "
+docker run -it --rm -v ${PWD}/osm_home:/mnt/osm/osm_home -v "$HOME/.local/share/powershell/secretmanagement/:/root/.secretmanagement/" markz0r/ghcr.io/organisationservicemanagement/atlassian-powerkit:latest
 ```
 
 ## Documentation

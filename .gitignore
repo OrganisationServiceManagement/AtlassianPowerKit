@@ -12,3 +12,5 @@
 !.gitignore
 !.gitattributes
 !LICENSE.md
+osm_home
+osm_home/**
