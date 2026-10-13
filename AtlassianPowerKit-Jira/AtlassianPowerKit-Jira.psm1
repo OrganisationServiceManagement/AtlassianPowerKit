@@ -38,7 +38,7 @@
 
 .EXAMPLE
     New-AtlassianAPIEndpoint -AtlassianAPIEndpoint 'https://yourdomain.atlassian.net'
-    
+
     This example sets the Jira Cloud API endpoint and then gets the Jira Cloud API endpoint.
 
 .EXAMPLE
@@ -65,7 +65,7 @@ GitHub: https://github.com/markz0r/AtlassianPowerKit
 
 #>
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
-# Directory of this file 
+# Directory of this file
 $RETRY_AFTER = 10
 #function Convert-JiraIssueToTableRow {
 #    param (
@@ -83,7 +83,7 @@ $RETRY_AFTER = 10
 #        }
 #    }
 #    $TABLE_ROW += '</tr>'
-#    $TABLE_ROW 
+#    $TABLE_ROW
 #    return $TABLE_ROW
 #}
 
@@ -323,21 +323,72 @@ function Test-JiraExportAttachmentFile {
     )
 
     $attachmentPath = Get-JiraExportLocalAttachmentPath -IssueDirectory $IssueDirectory -RelativePath ([string]$AttachmentExport.localRelativePath)
-    if ([string]::IsNullOrWhiteSpace($attachmentPath) -or -not (Test-Path -LiteralPath $attachmentPath -PathType Leaf)) {
+    if ([string]::IsNullOrWhiteSpace($attachmentPath) -or -not (Microsoft.PowerShell.Management\Test-Path -LiteralPath $attachmentPath -PathType Leaf)) {
         return $false
     }
-    $attachmentFile = Get-Item -LiteralPath $attachmentPath
+    $attachmentFile = Microsoft.PowerShell.Management\Get-Item -LiteralPath $attachmentPath
     [long]$recordedSize = 0
     if ([long]::TryParse([string]$AttachmentExport.downloadedSize, [ref]$recordedSize) -and $recordedSize -ge 0 -and $attachmentFile.Length -ne $recordedSize) {
         return $false
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$AttachmentExport.sha256)) {
-        $actualHash = (Get-FileHash -LiteralPath $attachmentPath -Algorithm SHA256).Hash
+        $actualHash = (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $attachmentPath -Algorithm SHA256).Hash
         if (-not $actualHash.Equals([string]$AttachmentExport.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
             return $false
         }
     }
     return $true
+}
+
+function Assert-JiraPartialProjectExportDirectory {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$OutputDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectKey
+    )
+
+    $outputItems = @(Get-ChildItem -LiteralPath $OutputDirectory -Force)
+    if ($outputItems.Count -eq 0) {
+        return 0
+    }
+
+    $issueDirectoryPattern = '^' + [regex]::Escape($ProjectKey) + '-[0-9]+$'
+    $validatedIssueCount = 0
+    foreach ($outputItem in $outputItems) {
+        if (-not $outputItem.PSIsContainer -or $outputItem.Name -notmatch $issueDirectoryPattern) {
+            throw "Non-empty output directory '$OutputDirectory' has no manifest and contains unexpected item '$($outputItem.Name)'."
+        }
+
+        $issueKey = $outputItem.Name
+        $jsonPath = Join-Path -Path $outputItem.FullName -ChildPath "$issueKey.json"
+        $markdownPath = Join-Path -Path $outputItem.FullName -ChildPath "$issueKey.md"
+        if (-not (Test-Path -LiteralPath $jsonPath -PathType Leaf) -or -not (Test-Path -LiteralPath $markdownPath -PathType Leaf)) {
+            throw "Partial Jira export directory '$($outputItem.FullName)' is missing its expected JSON or Markdown file."
+        }
+
+        try {
+            $issueExport = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json -Depth 100
+        } catch {
+            throw "Partial Jira issue export '$jsonPath' is invalid: $($_.Exception.Message)"
+        }
+        if ([int]$issueExport.schemaVersion -ne 2 -or
+            -not ([string]$issueExport.project.key).Equals($ProjectKey, [System.StringComparison]::OrdinalIgnoreCase) -or
+            -not ([string]$issueExport.issue.key).Equals($issueKey, [System.StringComparison]::OrdinalIgnoreCase) -or
+            [string]::IsNullOrWhiteSpace([string]$issueExport.issue.updated)) {
+            throw "Partial Jira issue export '$jsonPath' does not identify a valid schema version 2 export for project '$ProjectKey' and issue '$issueKey'."
+        }
+
+        foreach ($attachmentExport in @($issueExport.attachments)) {
+            if (-not (Test-JiraExportAttachmentFile -AttachmentExport $attachmentExport -IssueDirectory $outputItem.FullName)) {
+                throw "Partial Jira issue export '$jsonPath' contains missing or invalid attachment content for attachment '$($attachmentExport.id)'."
+            }
+        }
+        $validatedIssueCount++
+    }
+
+    return $validatedIssueCount
 }
 
 function ConvertFrom-JiraAdfToMarkdown {
@@ -429,11 +480,17 @@ function ConvertFrom-JiraAdfToMarkdown {
             }
             'inlineCard' {
                 $cardUrl = [string]$Node.attrs.url
-                return if ([string]::IsNullOrWhiteSpace($cardUrl)) { $childText } else { "<$cardUrl>" }
+                if ([string]::IsNullOrWhiteSpace($cardUrl)) {
+                    return $childText
+                }
+                return "<$cardUrl>"
             }
             'media' {
                 $mediaId = [string]$Node.attrs.id
-                return if ([string]::IsNullOrWhiteSpace($mediaId)) { '[embedded media]' } else { "[embedded media: $mediaId]" }
+                if ([string]::IsNullOrWhiteSpace($mediaId)) {
+                    return '[embedded media]'
+                }
+                return "[embedded media: $mediaId]"
             }
             default { return $childText }
         }
@@ -551,7 +608,8 @@ function Export-JiraProjectIssues {
         $existingOutputItems = @(Get-ChildItem -LiteralPath $OUTPUT_DIRECTORY -Force | Select-Object -First 1)
         $existingManifestPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'manifest.json'
         if ($existingOutputItems.Count -gt 0 -and -not (Test-Path -LiteralPath $existingManifestPath -PathType Leaf)) {
-            throw "Non-empty output directory '$OUTPUT_DIRECTORY' does not contain an existing Jira export manifest."
+            $validatedPartialIssueCount = Assert-JiraPartialProjectExportDirectory -OutputDirectory $OUTPUT_DIRECTORY -ProjectKey $PROJECT_KEY
+            Write-Warning "Resuming interrupted Jira export in '$OUTPUT_DIRECTORY' after validating $validatedPartialIssueCount existing issue export(s)."
         }
         if (Test-Path -LiteralPath $existingManifestPath -PathType Leaf) {
             try {
@@ -621,6 +679,21 @@ function Export-JiraProjectIssues {
 
     if (-not $outputDirectoryExists) {
         New-Item -ItemType Directory -Path $OUTPUT_DIRECTORY -Force | Out-Null
+    }
+
+    $manifestPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        $inProgressManifest = [ordered]@{
+            schemaVersion = 2
+            exportState   = 'InProgress'
+            startedAt     = $exportedAt.ToString('o')
+            site          = $baseUri.AbsoluteUri.TrimEnd('/')
+            jql           = $jql
+            project       = $project
+            issueCount    = $issues.Count
+            issues        = @()
+        }
+        Set-Content -LiteralPath $manifestPath -Value ($inProgressManifest | ConvertTo-Json -Depth 100) -Encoding utf8 -NoNewline
     }
 
     $archiveRoot = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'Archive'
@@ -775,14 +848,14 @@ function Export-JiraProjectIssues {
 
                         if (-not $attachmentWasReused) {
                             $temporaryAttachmentPath = "$stagingAttachmentPath.partial-$([guid]::NewGuid().ToString('N'))"
-                            $attachmentUri = [uri]::new($baseUri, "/rest/api/3/attachment/content/$attachmentId?redirect=false")
+                            $attachmentUri = [uri]::new($baseUri, "/rest/api/3/attachment/content/$($attachmentId)?redirect=false")
                             $attachmentContentType = if ([string]::IsNullOrWhiteSpace([string]$attachment.mimeType)) { 'application/octet-stream' } else { [string]$attachment.mimeType }
                             try {
                                 Invoke-JiraExportRequestWithRetry -Uri $attachmentUri -Headers $requestHeaders -OutFile $temporaryAttachmentPath -ContentType $attachmentContentType -MaximumRetryCount $MAX_RETRY_COUNT -MaximumBackoffSeconds $MAX_BACKOFF_SECONDS | Out-Null
                                 if (-not (Test-Path -LiteralPath $temporaryAttachmentPath -PathType Leaf)) {
                                     throw "Jira returned no attachment file for attachment '$attachmentId' on issue '$issueKey'."
                                 }
-                                $downloadedAttachment = Get-Item -LiteralPath $temporaryAttachmentPath
+                                $downloadedAttachment = Microsoft.PowerShell.Management\Get-Item -LiteralPath $temporaryAttachmentPath
                                 [long]$expectedAttachmentSize = 0
                                 if ([long]::TryParse([string]$attachment.size, [ref]$expectedAttachmentSize) -and $expectedAttachmentSize -ge 0 -and $downloadedAttachment.Length -ne $expectedAttachmentSize) {
                                     throw "Attachment '$attachmentId' on issue '$issueKey' downloaded $($downloadedAttachment.Length) bytes; Jira metadata reports $expectedAttachmentSize bytes."
@@ -802,8 +875,8 @@ function Export-JiraProjectIssues {
                             $attachmentExport[$attachmentProperty.Name] = $attachmentProperty.Value
                         }
                         $attachmentExport.localRelativePath = "attachments/$localAttachmentName"
-                        $attachmentExport.sha256 = (Get-FileHash -LiteralPath $stagingAttachmentPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                        $attachmentExport.downloadedSize = (Get-Item -LiteralPath $stagingAttachmentPath).Length
+                        $attachmentExport.sha256 = (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $stagingAttachmentPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                        $attachmentExport.downloadedSize = (Microsoft.PowerShell.Management\Get-Item -LiteralPath $stagingAttachmentPath).Length
                         [void]$attachmentExportsList.Add([pscustomobject]$attachmentExport)
                     }
                 }
@@ -933,6 +1006,7 @@ function Export-JiraProjectIssues {
 
     $manifest = [ordered]@{
         schemaVersion = 2
+        exportState    = 'Complete'
         exportedAt    = $exportedAt.ToString('o')
         site           = $baseUri.AbsoluteUri.TrimEnd('/')
         jql            = $jql
@@ -946,7 +1020,7 @@ function Export-JiraProjectIssues {
         reusedAttachmentCount = $reusedAttachmentCount
         issues         = [object[]]$issueManifestEntries
     }
-    $manifestPath = Join-Path -Path $OUTPUT_DIRECTORY -ChildPath 'manifest.json'
+
     Set-Content -LiteralPath $manifestPath -Value ($manifest | ConvertTo-Json -Depth 100) -Encoding utf8 -NoNewline
 
     $index = [System.Text.StringBuilder]::new()
@@ -1081,7 +1155,7 @@ function Import-JIRAIssueFromJSONBackup {
             }
         }
     }
-    
+
 
     $ISSUE_SOURCE_INFO = "Source: $($ISSUE.fields.project.key) - $($ISSUE.key) -  $($ISSUE.fields.issuetype.name) - $($ISSUE.self)"
     $ISSUE_KEY = $ISSUE.key
@@ -1132,13 +1206,13 @@ function Import-JIRAIssueFromJSONBackup {
     #         $POST_ISSUE.fields.$FIELD_NAME = $FIELD_VALUE
     #     }
     # }
-    # https://your-domain.atlassian.net/rest/api/3/issue/createmeta/{projectIdOrKey}/issuetypes' 
+    # https://your-domain.atlassian.net/rest/api/3/issue/createmeta/{projectIdOrKey}/issuetypes'
     # Write-Debug 'CREATE ISSUE METADATA: '
     # $CREATE_ISSUE_METADATA = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/createmeta/$DEST_PROJECT_KEY/issuetypes" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     # $CREATE_ISSUE_METADATA | ConvertTo-Json -Depth 100 | Write-Debug
     # return
 
-    
+
     Write-Debug "POSTING ISSUE: $($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue"
     $POST_ISSUE | ConvertTo-Json -Depth 100 -EscapeHandling Default | Write-Debug
     try {
@@ -1216,7 +1290,7 @@ function Get-JiraFilterResultsAsConfluenceTable {
 
     $FILTER_COLUMNS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/filter/$($FILTER_ID)/columns" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
     $COLUMN_VALS = $FILTER_COLUMNS | ForEach-Object { $_.Value }
-        
+
     $TABLE_HEADERS = '<tbody><tr>'
     #$CONFLUENCE_STORAGE_RAW_FOOTER = "</tbody><hr /><ul><li><p>Updated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p></li><li><p>Source: <a href=""$($FILTER_INFO.viewURL)"">$($FILTER_INFO.name)</a></p></li></ul><hr />"
     # Write-Debug "Filter Columns [$( $($FILTER_COLUMNS).count)]"
@@ -1250,14 +1324,14 @@ function Get-JiraFilterResultsAsConfluenceTable {
     exit
     #$flattenedIssues = $HASH_ARRAYLIST | ForEach-Object {
     ##    [PSCustomObject]@{
-            
-    
+
+
     #$TABLE_ROWS = @($HASH_ARRAYLIST | ForEach-Object {
     #        $ROW_HASH = $_
     #        Write-Debug '####################'
 
     #        Write-Debug "ISSUE: $($ROW_HASH.Key)"
-    #        #Write-Debug 'FIELDS: ' 
+    #        #Write-Debug 'FIELDS: '
     #        #$($ROW_HASH.fields) | ConvertTo-Json -Depth 10 | Write-Debug
     #        $ORDERED_FIELD_VALUES = @()
     #        Write-Debug 'Filter Columns: '
@@ -1272,7 +1346,7 @@ function Get-JiraFilterResultsAsConfluenceTable {
     #        Convert-JiraIssueToTableRow -RAW_ROW $ORDERED_FIELD_VALUES
     #    }
     #)
-        
+
     #$CONFLUENCE_STORAGE_RAW = $TABLE_HEADERS + $TABLE_ROWS + $CONFLUENCE_STORAGE_RAW_FOOTER
     #return $CONFLUENCE_STORAGE_RAW
 }
@@ -1346,7 +1420,7 @@ function Get-JSONFieldsWithData {
     Write-Output "JIRA_FIELD_ARRAY: $($JIRA_FIELD_ARRAY.Count)"
     $JIRA_FIELD_ARRAY | ForEach-Object {
         Write-Debug "JIRA_FIELD_ARRAY: $($_.name), $($_.id), $($_.custom)"
-    } 
+    }
     # For each json file in the directory, get the content and extract the fields
     # Write a sub-function that gets all fields in a JSON object array that are not null, adding the field to a hash table with key as the field name and value as the field value, if the key already exists, skip, the function takes a JSON object array as a parameter if the field is an object, write the field name and object type is an object, if the field is an array, write the field name and object type is an array, call self with the array as a parameter
     function Search-JSONObjectArray {
@@ -1358,20 +1432,20 @@ function Get-JSONFieldsWithData {
         $JSON_OBJECT = $RAW_JSON | ConvertFrom-Json -Depth 40
         Write-Debug "Processing JSON_OBJECT: $($($JSON_OBJECT).GetType())'
             Write-Debug 'Search-JSONObjectArray -- Issues Count: $($JSON_OBJECT.issues.Count)"
-        
+
         $JSON_OBJECT.issues.fields | ForEach-Object {
             $FIELDS = $_
             #Write-Debug "Processing fields: $($FIELDS.GetType())'
             #Write-Debug 'Fields: $($FIELDS.Count)'
             #Write-Debug 'Fields: $($FIELDS)"
             Write-Debug 'Converting to Hashtable...'
-        
+
             $FIELDSHashtable = @{}
             $FIELDS | ForEach-Object { $_.psobject.properties } | ForEach-Object { $FIELDSHashtable[$_.Name] = $_.Value }
             Write-Debug "FieldsHashtable Type: $($FIELDSHashtable.GetType())'
                 Write-Debug 'FieldsHashtable Count: $($FIELDSHashtable.Count)"
             Write-Output $FIELDSHashtable
-            
+
             #Write-Debug 'Skipping enumeration...'
             #return $false
             $FIELDSHashtable.GetEnumerator() | ForEach-Object {
@@ -1415,7 +1489,7 @@ function Get-JSONFieldsWithData {
         New-Item -ItemType File -Path $OUTPUT_FILE -Force | Out-Null
     }
     # Write the field list to a CSV file with headers
-    $CSV_DATA = @() 
+    $CSV_DATA = @()
     $CSV_DATA += 'Field Name, Field ID, Field Info, Field Value'
     # sort the data field list by field name and write values to the CSV file
     Write-Debug "DATA_FIELD_LIST: $($DATA_FIELD_LIST.GetType())'
@@ -1628,7 +1702,7 @@ function Get-JiraCloudJQLQueryResult {
         Write-Error "$($MyInvocation.MyCommand.Name): Error getting jql : $($_.Exception.Message)"
         Write-Debug '##############################################'
     }
-    Write-Debug "$($MyInvocation.MyCommand.Name): COMPLETED COLLECTION of JQL query results received to ISSUE_ARRAY: $($ISSUE_ARRAY.Count) ... Processing..." 
+    Write-Debug "$($MyInvocation.MyCommand.Name): COMPLETED COLLECTION of JQL query results received to ISSUE_ARRAY: $($ISSUE_ARRAY.Count) ... Processing..."
     if ($ClearEmptyFields -eq $true) {
         Write-Debug 'Cleaning empty fields...'
         $CLEAN_ISSUES = $ISSUE_ARRAY | ForEach-Object {
@@ -1729,7 +1803,7 @@ function Set-JiraIssueField {
         'null' { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = null } } }
         default { $FIELD_PAYLOAD = @{fields = @{"$Field_Ref" = "$New_Value" } } }
     }
-    $REQUEST_URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/2/issue/$($ISSUE_KEY)" 
+    $REQUEST_URL = "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/2/issue/$($ISSUE_KEY)"
     # Run the REST API call to update the field with verbose debug output
     Write-Debug "Field Payload: $($FIELD_PAYLOAD | ConvertTo-Json -Depth 10)"
     #Write-Debug "Trying: Invoke-RestMethod -Uri $REQUEST_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put -Body $FIELD_PAYLOAD -ContentType 'application/json'"
@@ -1846,7 +1920,7 @@ function Set-OSMRelationFieldBulkSQL {
         [Parameter(Mandatory = $true)]
         [string]$FieldRef
     )
-    
+
     $ISSUES = Get-JiraCloudJQLQueryResult -JQL_STRING $JQL_STRING -ReturnJSONOnly -RETURN_FIELDS @('key', 'summary')
     $ISSUES = $ISSUES | ConvertFrom-Json
     $ISSUES | ForEach-Object {
@@ -1930,7 +2004,7 @@ function Get-JiraIssueChangeNulls {
                 #Write-Debug 'changelog: $($_.toString)'
                 #Write-Debug 'changelog: $($_.to)'
             }
-            
+
         }
     }
     Write-Debug "Selector: $SELECTOR"
@@ -2062,7 +2136,7 @@ function Get-JiraProjectWorkflowSchemes {
     return $WORKFLOW_SCHEMES | ConvertTo-Json -Depth 100 -Compress
 }
 
-    
+
 
 # Get-JiraActiveWorkflows
 function Get-JiraActiveWorkflows {
@@ -2096,7 +2170,7 @@ function Get-JiraActiveWorkflows {
             New-Item -ItemType File -Path $OUTPUT_FILE -Force | Out-Null
         }
         $CSV_DATA += "$($WORKFLOW.id.name), $($WORKFLOW.description), $($WORKFLOW.statuses | ConvertTo-Csv -UseQuotes Never -Delimiter '-' -NoHeader)"
-            
+
     }
     $CSV_DATA | Out-File -FilePath $OUTPUT_FILE
     Write-Debug "Jira Workflows written to: $OUTPUT_FILE"
@@ -2137,7 +2211,7 @@ function Get-JiraFields {
         $CSV_DATA | Out-File -FilePath $OUTPUT_FILE
         #$REST_RESULTS | ConvertTo-Json -Depth 10 | Out-File -FilePath $OUTPUT_FILE
         # Write results to a CSV file
-        
+
         Write-Debug "Jira Fields written to: $OUTPUT_FILE"
     }
     return $REST_RESULTS
@@ -2343,7 +2417,7 @@ function Get-JIRAFieldContextOptionList {
         [string]$FIELD_ID,
         [Parameter(Mandatory = $true)]
         [string]$CONTEXT_ID
-    
+
     )
     $REQUEST_RESULTS = $()
     $REST_RESULTS = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/field/$FIELD_ID/context/$CONTEXT_ID/option" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
@@ -2369,7 +2443,7 @@ function Set-JIRAFieldContextOptions {
         [Parameter(Mandatory = $true)]
         [string]$CONTEXT_ID,
         [Parameter(Mandatory = $true)]
-        [string]$SOURCE_PROPERTIES_URL   
+        [string]$SOURCE_PROPERTIES_URL
     )
     try {
         $SOURCE_PROPERTIES = Invoke-RestMethod -Uri $SOURCE_PROPERTIES_URL -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
@@ -2379,7 +2453,7 @@ function Set-JIRAFieldContextOptions {
         Write-Debug ($_ | Select-Object -Property * -ExcludeProperty psobject | Out-String)
         Write-Error "Error updating field: $($_.Exception.Message)"
     }
-    
+
     # Get the current options for the field context
     $EXISTING_OPTIONS = Get-JIRAFieldContextOptionList -FIELD_ID $FIELD_ID -CONTEXT_ID $CONTEXT_ID | ConvertFrom-Json -Depth 10
     # ConvertFrom-Json -Depth 40
@@ -2435,7 +2509,7 @@ function Set-JIRAFieldContextOptions {
     return $RET_ARRAY | ConvertTo-Json -Depth 10 -Compress
 
 }
-    
+
 # Function to list all users for a JSM cloud project
 function Remove-RemoteIssueLink {
     param (
@@ -2532,7 +2606,7 @@ function Set-IssueLinkTypeByJQL {
         } else {
             Write-Debug "Updating link type: $CURRNT_LINK_TYPE to $NEW_LINK_TYPE_OR_NONE from JQL query results: $JQL_STRING"
         }
-    } else {        
+    } else {
         Write-Debug 'Issue links for JQL query results can be created, updated or deleted'
         Write-Debug 'To create a link, required parameters are JQL_STRING, NEW_LINK_TYPE_OR_NONE, LINK_DIRECTION_FOR_JQL and TARGET_ISSUE_KEY'
         Write-Debug 'To update or remove a link, required parameters are JQL_STRING, CURRNT_LINK_TYPE, NEW_LINK_TYPE_OR_NONE'
@@ -2703,7 +2777,7 @@ function Set-AttachedFormsExternal {
     $ATTACHED_FORMS | ForEach-Object {
         $ATTACHED_FORM = $_
         if ($ATTACHED_FORM.internal -eq $true) {
-            Write-Debug "Changing form ($($ATTACHED_FORM.id)) to external for issue: $ISSUE_KEY"             
+            Write-Debug "Changing form ($($ATTACHED_FORM.id)) to external for issue: $ISSUE_KEY"
             try {
                 #https://api.atlassian.com/jira/forms/cloud/{cloudId}/issue/{issueIdOrKey}/form/{formId}/action/external' \
                 Invoke-RestMethod -Uri "$ISSUE_FORM_ATTACHMENTS_URL/$($ATTACHED_FORM.id)/action/external" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Put
@@ -2757,7 +2831,7 @@ function Get-FormsForJiraProject {
     Write-Debug "Project Form Index JSON file created: $OUTPUT_PATH\$FILENAME"
     return $PROJECT_FORM_INDEX | ConvertTo-Json -Depth 50 -Compress
 
-    
+
 }
 function Get-FormsForJiraIssue {
     param (
