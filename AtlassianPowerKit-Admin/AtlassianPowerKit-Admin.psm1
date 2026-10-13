@@ -18,8 +18,8 @@ GitHub: https://github.com/OrganisationServiceManagement/AtlassianPowerKit.git
 
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 # Directory of this file 
-Import-Module "$env:OSM_INSTALL\AtlassianPowerKit\AtlassianPowerKit-Shared\AtlassianPowerKit-Shared.psd1" -Force
-Import-Module "$env:OSM_INSTALL\AtlassianPowerKit\AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psd1" -Force
+Import-Module (Join-Path $PSScriptRoot '..\AtlassianPowerKit-Shared\AtlassianPowerKit-Shared.psd1') -Force
+Import-Module (Join-Path $PSScriptRoot '..\AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psd1') -Force
 $RETRY_AFTER = 10
 
 # Function to create a new Jira Issue Typess
@@ -468,7 +468,7 @@ function Export-ProjectProformaFormTemplates {
         [Parameter(Mandatory = $false)]
         [string]$OUTPUT_PATH = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\JIRA"
     )
-    Import-Module "$env:OSM_INSTALL\AtlassianPowerKit\AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psd1" -Force | Out-Null
+    Import-Module (Join-Path $PSScriptRoot '..\AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psd1') -Force | Out-Null
     $TIME_STAMP = Get-Date -Format 'yyyyMMdd-HHmm'
     $PROFILE_NAME = $env:AtlassianPowerKit_PROFILE_NAME
     $FORMLIST_FILE = "$OUTPUT_PATH\$PROFILE_NAME-$PROJECT_KEY-ProformaFormList-$TIME_STAMP.json"

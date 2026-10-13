@@ -28,6 +28,7 @@ AtlassianPowerKit_APIKey=your_atlassian_api_token
 ```
 
 `.env` is ignored by Git. The module fails fast if any required profile values are missing instead of prompting interactively.
+Nested modules resolve their dependencies relative to their own files, independently of the working directory or `OSM_INSTALL`.
 
 ```powershell
 # Text UI
@@ -36,20 +37,33 @@ AtlassianPowerKit
 AtlassianPowerKit -FunctionName "Get-JiraIssue" -FunctionParameters @{"Key"="TEST-1"}
 ```
 
-```docker
-# These examples assume `.env` contains `OSM_HOME=./osm_home`.
-# Windows
-mkdir .\osm_home
-docker run --rm --env-file .env -v ${PWD}\osm_home:/mnt/osm -v "$Env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\:/root/.secretmanagement/" -it markz0r/atlassian-powerkit:latest
+The container starts PowerShell, imports the toolkit from `/app`, and runs `AtlassianPowerKit`. Export data belongs in `/mnt/osm`, separate from the application files. Override the host's `OSM_HOME` when passing `.env` to Docker:
 
-# Linux
+```powershell
+# Windows
+New-Item -ItemType Directory -Path .\osm_home -Force
+docker run --rm --env-file .env -e OSM_HOME=/mnt/osm -v "${PWD}\osm_home:/mnt/osm" -it markz0r/atlassian-powerkit:latest
+```
+
+```bash
+# Linux/macOS
 mkdir ./osm_home
-docker run -it --rm --env-file .env -v ${PWD}/osm_home:/mnt/osm -v "$HOME/.local/share/powershell/secretmanagement/:/root/.secretmanagement/" markz0r/atlassian-powerkit:latest
+docker run --rm --env-file .env -e OSM_HOME=/mnt/osm -v "${PWD}/osm_home:/mnt/osm" -it markz0r/atlassian-powerkit:latest
 ```
 
 ### Building the Docker image
 
 `build_and_push.ps1` also reads `.env`. Set `DOCKER_IMAGE_NAME` in `.env`; optional build flags include `DOCKER_IMAGE_VERSION`, `DOCKER_PUSH`, `DOCKER_LATEST`, `DOCKER_TEST_RUN`, and `DOCKER_MULTI_ARCH`.
+
+```powershell
+.\build_and_push.ps1 -TestRun
+# Check an existing image without building or pushing:
+.\build_and_push.ps1 -SkipBuild -TestRun -Version 'your-existing-tag'
+```
+
+The build context includes application modules, not local `.env` files, profiles, or exports. The smoke check imports every packaged module without requiring Atlassian credentials. Docker command failures stop the script instead of reporting a successful build.
+
+Confluence space-list snapshots include a local timestamp in each filename. Page exports traverse all ancestor batches in root-to-parent order, including folder and other supported content ancestors, to preserve the complete hierarchy.
 
 ## Documentation
 
@@ -57,14 +71,15 @@ docker run -it --rm --env-file .env -v ${PWD}/osm_home:/mnt/osm -v "$HOME/.local
 
 ## Dependencies
 
-- PowerShell 7.0 or later (Core is supported on Windows, macOS, and Linux)
+- PowerShell 7.3 or later (Core is supported on Windows, macOS, and Linux)
 - Alternatively, you can use the Docker image to run the module:
-  - `docker run --rm --env-file .env -v ${PWD}\osm_home:/mnt/osm -v "$Env:LOCALAPPDATA\Microsoft\PowerShell\secretmanagement\:/root/.secretmanagement/" -it markz0r/atlassian-powerkit:latest`
-  - Ensure the mounted host path matches `OSM_HOME` in `.env`.
+  - Use the Docker commands above to mount export data without hiding the application files.
 
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
+
+Run the offline regression checks with `pwsh -NoProfile -File .\tests\Test-Regression.ps1`. They do not use a real Atlassian account or invoke Docker.
 
 ## License
 

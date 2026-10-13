@@ -1,0 +1,9 @@
+*
+!AtlassianPowerKit.psd1
+!AtlassianPowerKit.psm1
+!AtlassianPowerKit-*/
+!AtlassianPowerKit-*/**
+**/.env*
+**/archived
+**/osm_home
+**/.temp

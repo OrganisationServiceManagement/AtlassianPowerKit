@@ -402,32 +402,52 @@ function Export-ConfluencePage {
     $ancestorChain = [System.Collections.Generic.List[object]]::new()
     $ancestorIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $ancestorRequestSucceeded = $false
-    $nextAncestorUri = [uri]::new($baseUri, "/wiki/api/v2/pages/$encodedPageId/ancestors?limit=250")
+    $ancestorResourceSegments = @{
+        page       = 'pages'
+        folder     = 'folders'
+        whiteboard = 'whiteboards'
+        database   = 'databases'
+        embed      = 'embeds'
+    }
+    $ancestorLimit = 250
+    $nextAncestorUri = [uri]::new($baseUri, "/wiki/api/v2/pages/$encodedPageId/ancestors?limit=$ancestorLimit")
     $requestedAncestorUris = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
     try {
         while ($null -ne $nextAncestorUri) {
             if (-not $requestedAncestorUris.Add($nextAncestorUri.AbsoluteUri)) {
-                throw "Confluence returned a cyclic ancestor pagination link: $nextAncestorUri"
+                throw "Confluence returned a cyclic ancestor chain: $nextAncestorUri"
             }
 
             $ancestorResponse = Invoke-ConfluenceRestGetWithRetry -Uri $nextAncestorUri -Headers $requestHeaders -MaximumRetryCount $CONFLUENCE_MAX_RETRY_COUNT -MaximumBackoffSeconds $CONFLUENCE_MAX_BACKOFF_SECONDS
-            foreach ($ancestor in @($ancestorResponse.results)) {
+            $ancestorBatch = @($ancestorResponse.results)
+            $newAncestors = [System.Collections.Generic.List[object]]::new()
+            foreach ($ancestor in $ancestorBatch) {
                 $ancestorId = [string]$ancestor.id
-                if (-not [string]::IsNullOrWhiteSpace($ancestorId) -and $ancestorIds.Add($ancestorId)) {
-                    [void]$ancestorChain.Add($ancestor)
+                if ([string]::IsNullOrWhiteSpace($ancestorId) -or $ancestorId -eq $CONFLUENCE_PAGE_ID -or -not $ancestorIds.Add($ancestorId)) {
+                    throw "Confluence returned an empty or repeated ancestor ID '$ancestorId'."
                 }
+                [void]$newAncestors.Add($ancestor)
+            }
+            # Each batch is top-to-bottom; subsequent batches contain higher ancestors.
+            $ancestorChain.InsertRange(0, $newAncestors)
+
+            if ($ancestorBatch.Count -lt $ancestorLimit) {
+                break
             }
 
-            $nextAncestorLink = [string]$ancestorResponse._links.next
-            $nextAncestorUri = if ([string]::IsNullOrWhiteSpace($nextAncestorLink)) {
-                $null
-            } else {
-                [uri]::new($baseUri, $nextAncestorLink)
+            $highestAncestor = $ancestorBatch[0]
+            $highestAncestorType = if ([string]::IsNullOrWhiteSpace([string]$highestAncestor.type)) { 'page' } else { ([string]$highestAncestor.type).ToLowerInvariant() }
+            if (-not $ancestorResourceSegments.ContainsKey($highestAncestorType)) {
+                throw "Cannot continue ancestor traversal through unsupported content type '$highestAncestorType'."
             }
+            $ancestorResourceSegment = $ancestorResourceSegments[$highestAncestorType]
+            $highestAncestorId = [uri]::EscapeDataString([string]$highestAncestor.id)
+            $nextAncestorUri = [uri]::new($baseUri, "/wiki/api/v2/$ancestorResourceSegment/$highestAncestorId/ancestors?limit=$ancestorLimit")
         }
         $ancestorRequestSucceeded = $true
     } catch {
+        $ancestorChain.Clear()
         Write-Warning "Could not retrieve the complete ancestor chain for page '$CONFLUENCE_PAGE_ID'; falling back to the supplied parent when available. $($_.Exception.Message)"
     }
 
@@ -437,13 +457,6 @@ function Export-ConfluencePage {
         [void]$ancestorChain.Add([pscustomobject]@{ id = $PARENT_PAGE_ID; type = 'page' })
     }
 
-    $ancestorResourceSegments = @{
-        page       = 'pages'
-        folder     = 'folders'
-        whiteboard = 'whiteboards'
-        database   = 'databases'
-        embed      = 'embeds'
-    }
     $hierarchyDirectories = [System.Collections.Generic.List[string]]::new()
     foreach ($ancestor in $ancestorChain) {
         $ancestorId = [string]$ancestor.id
@@ -1028,6 +1041,7 @@ function Get-ConfluenceSpaceList {
     }
     $CONFLUENCE_PAGE_TITLE = "ConfluenceSpaces"
     $OUTPUT_DIR = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\CONFLUENCE"
+    $CURRENT_DATE_TIME = Get-Date -Format 'yyyyMMdd-HHmmssfff'
     $OUTPUT_FILE_NAME = "ConfluenceSpaces_$($env:AtlassianPowerKit_PROFILE_NAME)_$CURRENT_DATE_TIME.json"
     Write-Debug "Exporting space list for $($env:AtlassianPowerKit_PROFILE_NAME) to file: $OUTPUT_DIR\$OUTPUT_FILE_NAME ..."
     if (-not (Test-Path $OUTPUT_DIR)) {

@@ -6,7 +6,7 @@ param(
     [switch]$Latest,
     [switch]$TestRun,
     [switch]$MultiArch,  # requires buildx configured
-    [switch]$SkipBuild  # for testing alias addition without building/pushing
+    [switch]$SkipBuild  # reuse an existing image without building or pushing
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,6 +69,18 @@ function Get-EnvBool {
     }
 }
 
+function Invoke-Docker {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    & docker @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker '$($Arguments[0])' failed with exit code $LASTEXITCODE."
+    }
+}
+
 Import-EnvFile -Path $EnvFile
 
 if ([string]::IsNullOrWhiteSpace($ImageName)) {
@@ -95,37 +107,44 @@ $multiArchEnabled = if ($PSBoundParameters.ContainsKey('MultiArch')) { [bool]$Mu
 Write-Host "Building image for: $ImageName Version: $Version"
 
 $tags = @("${ImageName}:$Version")
-if ($tagLatest) { $tags += "$ImageName:latest" }
+if ($tagLatest) { $tags += "${ImageName}:latest" }
 
-# Build args (add if you need)
-$buildArgs = @()
-
-# Choose build command
-if ($multiArchEnabled) {
-    try {
-        docker buildx ls | Out-Null
-    } catch {
-        throw 'docker buildx not configured.'
-    }
-    $tagArgs = $tags | ForEach-Object { "--tag $_" } | Out-String
-    $cmd = "docker buildx build --platform linux/amd64,linux/arm64 $tagArgs --progress plain ."
-    if ($shouldPush) { $cmd += ' --push' } else { $cmd += ' --load' }
-    Write-Host $cmd
-    Invoke-Expression $cmd
-} else {
-    foreach ($t in $tags) {
-        docker build -t $t @buildArgs .
-    }
-    if ($shouldPush) {
-        Write-Host 'Pushing tags...'
-        foreach ($t in $tags) { docker push $t }
+if (-not $SkipBuild) {
+    if ($multiArchEnabled) {
+        Invoke-Docker -Arguments @('buildx', 'ls') | Out-Null
+        $dockerArguments = @('buildx', 'build', '--platform', 'linux/amd64,linux/arm64')
+        foreach ($tag in $tags) {
+            $dockerArguments += @('--tag', $tag)
+        }
+        $dockerArguments += @('--progress', 'plain')
+        $dockerArguments += if ($shouldPush) { '--push' } else { '--load' }
+        $dockerArguments += $PSScriptRoot
+        Invoke-Docker -Arguments $dockerArguments
+    } else {
+        foreach ($tag in $tags) {
+            Invoke-Docker -Arguments @('build', '--tag', $tag, $PSScriptRoot)
+        }
+        if ($shouldPush) {
+            Write-Host 'Pushing tags...'
+            foreach ($tag in $tags) {
+                Invoke-Docker -Arguments @('push', $tag)
+            }
+        }
     }
 }
 
 if ($testRunEnabled) {
     Write-Host 'Test importing module inside container...'
     $testTag = $tags[0]
-    docker run --rm $testTag pwsh -NoLogo -Command "Import-Module /app/AtlassianPowerKit.psd1; 'Module Loaded OK'; Get-Command AtlassianPowerKit | Out-Null"
+    $smokeCommand = @'
+$ErrorActionPreference = 'Stop'
+Get-ChildItem -Path /app -Filter *.psd1 -Recurse | ForEach-Object {
+    Import-Module $_.FullName -Force
 }
-Write-Host 'Done. Tags built:'
+Get-Command AtlassianPowerKit, Export-JiraProjectIssues | Out-Null
+'Modules Loaded OK'
+'@
+    Invoke-Docker -Arguments @('run', '--rm', '--entrypoint', 'pwsh', $testTag, '-NoLogo', '-NoProfile', '-Command', $smokeCommand)
+}
+Write-Host 'Done. Image tags:'
 $tags | ForEach-Object { Write-Host "  $_" }

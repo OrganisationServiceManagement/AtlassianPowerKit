@@ -80,7 +80,7 @@ function Update-GRCosmConfRegister {
     #FiLENAME is just GRC.*, exclude any prefix
     $FILENAME = $FILENAME -replace '.*GRC', 'GRC'
     $OUTPUT_FILE = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\$FILENAME"
-    $PUPPETEER_PATH = "$($env:OSM_HOME)\AtlassianPowerKit\AtlassianPowerKit-GRCosm"
+    $PUPPETEER_PATH = $PSScriptRoot
     #Push-Location $PUPPETEER_PATH
 
     $NodePath = Get-Command -Name 'node' | Select-Object -ExpandProperty Source
@@ -111,7 +111,7 @@ function Update-GRCosmConfRegister {
     } else {
         Write-Host 'Node.js script completed successfully.'
     }
-    Import-Module "$($env:OSM_HOME)\AtlassianPowerKit\AtlassianPowerKit-Confluence\AtlassianPowerKit-Confluence.psd1" -Force | Out-Null
+    Import-Module (Join-Path $PSScriptRoot '..\AtlassianPowerKit-Confluence\AtlassianPowerKit-Confluence.psd1') -Force | Out-Null
     Write-Debug "Removing attachments from Confluence page: $CONFLUENCE_PAGE_ID"
     Remove-AttachmentsFromConfPage -CONFLUENCE_PAGE_ID $CONFLUENCE_PAGE_ID | Out-Null
     Write-Debug "Setting attachment for Confluence page: $CONFLUENCE_PAGE_ID to $OUTPUT_FILE.pdf"

@@ -14,6 +14,9 @@
 !env_example
 !.gitignore
 !.gitattributes
+!.dockerignore
 !LICENSE.md
+!tests/
+!tests/*.ps1
 osm_home
 osm_home/**
