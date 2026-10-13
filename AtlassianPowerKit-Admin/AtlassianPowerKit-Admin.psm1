@@ -287,10 +287,6 @@ function New-AtlassianEmergencyAdminUser {
         [Parameter(Mandatory = $false)]
         [bool]$GRANT_ORG_ADMIN = $true,
         [Parameter(Mandatory = $false)]
-        [bool]$SEND_NOTIFICATION = $true,
-        [Parameter(Mandatory = $false)]
-        [string]$NOTIFICATION_TEXT,
-        [Parameter(Mandatory = $false)]
         [switch]$SKIP_PRODUCT_ACCESS
     )
 
@@ -309,7 +305,6 @@ function New-AtlassianEmergencyAdminUser {
 
     $INVITE_BODY = @{
         emails           = @($EMAIL)
-        sendNotification = $SEND_NOTIFICATION
     }
 
     if (-not $SKIP_PRODUCT_ACCESS) {
@@ -321,10 +316,6 @@ function New-AtlassianEmergencyAdminUser {
 
     if ($ADDITIONAL_GROUP_IDS -and $ADDITIONAL_GROUP_IDS.Count -gt 0) {
         $INVITE_BODY.additionalGroups = $ADDITIONAL_GROUP_IDS
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($NOTIFICATION_TEXT)) {
-        $INVITE_BODY.notificationText = $NOTIFICATION_TEXT
     }
 
     $INVITE_RESPONSE = Invoke-AtlassianAdminAPIRequest -URI "https://api.atlassian.com/admin/v2/orgs/$ORG_ID/users/invite" -METHOD 'Post' -BODY $INVITE_BODY -ADMIN_API_KEY $ADMIN_API_KEY
