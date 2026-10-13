@@ -12,11 +12,13 @@
 !*.psm1
 !README.md
 !env_example
+!build_local.sh
 !.gitignore
 !.gitattributes
 !.dockerignore
 !LICENSE.md
 !tests/
 !tests/*.ps1
+!tests/*.sh
 osm_home
 osm_home/**
