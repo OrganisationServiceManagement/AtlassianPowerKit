@@ -56,15 +56,15 @@ docker run --rm --env-file .env -e OSM_HOME=/mnt/osm -v "${PWD}/osm_home:/mnt/os
 For a local build using Bash on Linux, macOS, or WSL, run:
 
 ```bash
-./build_local.sh --latest
+./build_local.sh
 # Use a custom local image name and tag:
 ./build_local.sh --image-name atlassian-powerkit --version dev
 # Rebuild without cached layers and check for a newer base image:
-./build_local.sh --latest --no-cache --pull
+./build_local.sh --no-cache --pull
 ./build_local.sh --help
 ```
 
-The Bash script defaults to `markz0r/atlassian-powerkit` with a timestamp tag; `--latest` adds the tag used in the runtime examples above. It builds from the script's directory, so it can also be invoked from another working directory. Docker and Bash are required. The image is [loaded into the current Docker daemon](https://docs.docker.com/reference/cli/docker/buildx/build/#load) and is not published. The script neither reads `.env` nor uses `DOCKER_*` variables for image names, tags, or publishing.
+The Bash script defaults to `markz0r/atlassian-powerkit` and always creates both the version tag (a timestamp by default) and `latest`. A custom `--image-name` receives both tags too; `--version latest` creates that tag once. The optional `--latest` flag remains accepted for compatibility. It builds from the script's directory, so it can also be invoked from another working directory. Docker and Bash are required. The image is [loaded into the current Docker daemon](https://docs.docker.com/reference/cli/docker/buildx/build/#load) and is not published. The script neither reads `.env` nor uses `DOCKER_*` variables for image names, tags, or publishing.
 
 For PowerShell builds and explicit publishing:
 

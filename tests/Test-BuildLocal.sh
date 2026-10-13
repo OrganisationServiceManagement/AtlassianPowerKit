@@ -51,17 +51,19 @@ is_timestamp_tag() {
 
 bash "$fixture/build_local.sh" > "$test_root/output"
 read_arguments
-assert test "${#docker_args[@]}" -eq 5
+assert test "${#docker_args[@]}" -eq 7
 assert test "${docker_args[0]}" = build
 assert test "${docker_args[1]}" = --load
 assert test "${docker_args[2]}" = --tag
 assert is_timestamp_tag "${docker_args[3]}"
-assert test "${docker_args[4]}" = "$fixture"
+assert test "${docker_args[4]}" = --tag
+assert test "${docker_args[5]}" = markz0r/atlassian-powerkit:latest
+assert test "${docker_args[6]}" = "$fixture"
 assert test ! -e "$test_root/env-was-sourced"
 
 rm "$fixture/.env" "$test_root/caller/.env"
 : > "$APK_DOCKER_LOG"
-bash "$fixture/build_local.sh" --image-name example/local --version dev --latest --no-cache --pull > "$test_root/output"
+bash "$fixture/build_local.sh" --image-name example/local --version dev --no-cache --pull > "$test_root/output"
 read_arguments
 assert test "${#docker_args[@]}" -eq 9
 assert test "${docker_args[2]}" = --no-cache
@@ -71,6 +73,13 @@ assert test "${docker_args[5]}" = example/local:dev
 assert test "${docker_args[6]}" = --tag
 assert test "${docker_args[7]}" = example/local:latest
 assert test "${docker_args[8]}" = "$fixture"
+
+: > "$APK_DOCKER_LOG"
+bash "$fixture/build_local.sh" --version latest --latest > "$test_root/output"
+read_arguments
+assert test "${#docker_args[@]}" -eq 5
+assert test "${docker_args[3]}" = markz0r/atlassian-powerkit:latest
+assert test "${docker_args[4]}" = "$fixture"
 
 expect_failure() {
     local expected_status=$1

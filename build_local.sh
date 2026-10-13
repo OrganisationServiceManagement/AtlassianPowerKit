@@ -5,13 +5,13 @@ usage() {
     cat <<'EOF'
 Usage: ./build_local.sh [options]
 
-Build and load an image into the current Docker daemon.
+Build and load an image with version and latest tags into the current Docker daemon.
 Runtime .env files are never read. This script does not publish images.
 
 Options:
   --image-name NAME  Image repository (default: markz0r/atlassian-powerkit)
   --version TAG      Image tag (default: yyyy.MM.dd.HHmm timestamp)
-  --latest           Also tag the image as latest
+  --latest           Accepted for compatibility; latest is always tagged
   --no-cache         Build without cached layers
   --pull             Check for an updated base image
   -h, --help         Show this help
@@ -20,7 +20,6 @@ EOF
 
 image_name='markz0r/atlassian-powerkit'
 version=''
-tag_latest=false
 docker_arguments=(build --load)
 
 while (( $# > 0 )); do
@@ -38,7 +37,7 @@ while (( $# > 0 )); do
             shift 2
             ;;
         --latest)
-            tag_latest=true
+            # Retained for existing callers; every build includes latest.
             shift
             ;;
         --no-cache|--pull)
@@ -72,7 +71,7 @@ fi
 
 version=${version:-$(date +%Y.%m.%d.%H%M)}
 tags=("$image_name:$version")
-if [[ "$tag_latest" == true && "$version" != latest ]]; then
+if [[ "$version" != latest ]]; then
     tags+=("$image_name:latest")
 fi
 
