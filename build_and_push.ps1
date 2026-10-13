@@ -5,7 +5,8 @@ param(
     [switch]$Push,
     [switch]$Latest,
     [switch]$TestRun,
-    [switch]$MultiArch  # requires buildx configured
+    [switch]$MultiArch,  # requires buildx configured
+    [switch]$SkipBuild  # for testing alias addition without building/pushing
 )
 
 $ErrorActionPreference = 'Stop'
@@ -126,6 +127,5 @@ if ($testRunEnabled) {
     $testTag = $tags[0]
     docker run --rm $testTag pwsh -NoLogo -Command "Import-Module /app/AtlassianPowerKit.psd1; 'Module Loaded OK'; Get-Command AtlassianPowerKit | Out-Null"
 }
-
 Write-Host 'Done. Tags built:'
 $tags | ForEach-Object { Write-Host "  $_" }
