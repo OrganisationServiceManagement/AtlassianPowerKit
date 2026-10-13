@@ -35,44 +35,6 @@ GitHub: https://github.com/markz0r/AtlassianPowerKit
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 $RETRY_AFTER = 60
 
-function Clear-AtlassianPowerKitProfile {
-    # Clear all environment variables starting with AtlassianPowerKit_
-    Get-ChildItem env:AtlassianPowerKit_* | ForEach-Object {
-        Write-Debug "Removing environment variable: $_"
-        Remove-Item "env:$($_.Name)" -ErrorAction Continue
-    }
-}
-
-# Function to iterate through profile directories and clear contents by 
-function Clear-AtlassianPowerKitProfileDirs {
-    $PROFILE_DIRS = Get-AtlassianPowerKitProfileList | Get-Item
-    $EXCLUDED_BACKUP_PATTERNS = @('*.zip')
-    $EXCLUDED_DELETE_PATTERNS = @('*.zip', '*.md', '*.dotx', '*pdf', '*.doc', '*.docx', '*templates', '*ARCHIVE')
-    # Get all subdirectories in the AtlassianPowerKit profile directory that dont match $EXCLUDED_FILENAME_PATTERNS
-    foreach ($dir in $PROFILE_DIRS) {
-        $ARCHIVE_NAME = "$($dir.BaseName)_ARCHIVE_$(Get-Date -Format 'yyyyMMdd').zip"
-        $ARCHIVE_PATH = Join-Path -Path $dir.FullName -ChildPath $ARCHIVE_NAME
-
-        # Collecting items excluding the patterns
-        $itemsToArchive = Get-ChildItem -Path $dir.FullName -Recurse -File -Exclude $EXCLUDED_BACKUP_PATTERNS
-        Write-Debug "Items to archive: $($itemsToArchive.FullName) ..."
-
-        if ($itemsToArchive.Count -eq 0) {
-            Write-Debug "Profile directory $dir. FullName has nothing to archive. Skipping..."
-        } else {
-            # Archiving items
-            Compress-Archive -Path $itemsToArchive.FullName -DestinationPath $ARCHIVE_PATH -Force
-            Write-Debug "Archiving $($dir.BaseName) to $ARCHIVE_NAME in $($dir.FullName)...."
-            # Delete any directories with no files or subdirectories
-            Get-ChildItem -Path $dir.FullName -Recurse -Directory | Where-Object { $_.GetFileSystemInfos().Count -eq 0 } | Remove-Item -Force
-            # Write-Debug "Profile directory $dir.FullName cleared and archived to $ARCHIVE_NAME."
-        }
-        Get-ChildItem -Path $dir.FullName -Recurse -File -Exclude $EXCLUDED_DELETE_PATTERNS | Remove-Item -Force
-        Get-ChildItem -Path $dir.FullName -Recurse -Directory -Exclude $EXCLUDED_DELETE_PATTERNS | Remove-Item -Force
-    }
-    # Optionally, clear the directory after archiving
-    Write-Debug 'Profile directories cleared.'
-}
 
 function Get-PaginatedJSONResults {
     param (

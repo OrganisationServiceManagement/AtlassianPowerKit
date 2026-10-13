@@ -1,7 +1,64 @@
 $ErrorActionPreference = 'Stop'; $DebugPreference = 'Continue'
 
+function Import-AtlassianPowerKitEnvFile {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$Path = (Join-Path -Path $PSScriptRoot -ChildPath '.env')
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    foreach ($rawLine in Get-Content -LiteralPath $Path) {
+        $line = $rawLine.Trim()
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) {
+            continue
+        }
+
+        if ($line -notmatch '^(?:export\s+)?(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?<value>.*)$') {
+            Write-Warning "Skipping invalid .env line: $rawLine"
+            continue
+        }
+
+        $name = $Matches.name
+        $value = $Matches.value.Trim()
+        $quoted = ($value.Length -ge 2) -and (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        )
+
+        if ($quoted) {
+            $value = $value.Substring(1, $value.Length - 2)
+        } elseif ($value -match '^(?<value>.*?)\s+#.*$') {
+            $value = $Matches.value.TrimEnd()
+        }
+
+        Set-Item -Path "env:$name" -Value $value
+    }
+
+    return $true
+}
+
+function Assert-AtlassianPowerKitEnvVars {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$Names
+    )
+
+    $missing = $Names | Where-Object {
+        [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_, 'Process'))
+    }
+
+    if ($missing) {
+        throw "Missing required environment variable(s): $($missing -join ', '). Copy env_example to .env and fill in the required values."
+    }
+}
+
 # ret neg is reverse order of ret pos
 function Get-RequisitePowerKitModules {
+
+
     $AtlassianPowerKitRequiredModules = @('PowerShellGet', 'Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
     $AtlassianPowerKitRequiredModules | ForEach-Object {
         # Import or install the required module
@@ -23,13 +80,15 @@ function Get-RequisitePowerKitModules {
 function Import-NestedModules {
     param (
         [Parameter(Mandatory = $true)]
-        [string[]]$NESTED_MODULES
+        [string[]]$NESTED_MODULES,
+        [Parameter(Mandatory = $true)]
+        [string]$POWERKIT_INSTALL_DIR
     )
     $NESTED_MODULES | ForEach-Object {
         $MODULE_NAME = $_
         #Write-Debug "Importing nested module: $MODULE_NAME"
         #Find-Module psd1 file in the subdirectory and import it
-        $PSD1_FILE = Get-ChildItem -Path ".\$MODULE_NAME" -Filter "$MODULE_NAME.psd1" -Recurse -ErrorAction SilentlyContinue
+        $PSD1_FILE = Get-ChildItem -Path "$POWERKIT_INSTALL_DIR" -Filter "$MODULE_NAME.psd1" -Recurse -ErrorAction SilentlyContinue
         if (-not $PSD1_FILE) {
             Write-Error "Module $MODULE_NAME not found. Exiting."
             throw "Nested module $MODULE_NAME not found. Exiting."
@@ -263,50 +322,36 @@ function Show-AtlassianPowerKitFunctions {
 }
 
 function Initialize-AtlassianPowerKitProfile {
-    if ($env:AtlassianPowerKit_PROFILE_NAME) {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$ProfileNameProvided
+    )
+    if ($ProfileNameProvided) {
+        $profileName = $ProfileNameProvided
+        $env:AtlassianPowerKit_PROFILE_NAME = $profileName
+    } elseif ($env:AtlassianPowerKit_PROFILE_NAME) {
         $profileName = $env:AtlassianPowerKit_PROFILE_NAME
     } else {
-        Write-Output 'NOTE: you can pre-set the following environment variables:'
-        Write-Output "  AtlassianPowerKit_PROFILE_NAME - The name of the profile to use (default: 'default')"
-        Write-Output "  AtlassianPowerKit_ENDPOINT - The Atlassian API endpoint (default: 'profile_name.atlassian.net')"
-        Write-Output "  AtlassianPowerKit_UserName - The Atlassian user name for the profile (default: 'profile_name@endpoint')"
-        Write-Output '  AtlassianPowerKit_APIKey - The Atlassian API key for the profile (default: read from /run/secrets/api_key or prompted)'
-        $profileName = Read-Host -Prompt 'Enter the profile name'
+        Assert-AtlassianPowerKitEnvVars -Names @('AtlassianPowerKit_PROFILE_NAME')
     }
     $profileName = $profileName.Trim().ToLower()
     $env:AtlassianPowerKit_PROFILE_NAME = $profileName
 
-    if ($env:AtlassianPowerKit_ENDPOINT) {
-        $endpoint = $env:AtlassianPowerKit_ENDPOINT
-    } else {
-        $endpoint = Read-Host -Prompt "Enter the Atlassian API endpoint [$profileName.atlassian.net]"
-        if ([string]::IsNullOrWhiteSpace($endpoint)) {
-            $endpoint = "$profileName.atlassian.net"
-        }
-    }
+    Assert-AtlassianPowerKitEnvVars -Names @('AtlassianPowerKit_ENDPOINT', 'AtlassianPowerKit_UserName')
+    $endpoint = $env:AtlassianPowerKit_ENDPOINT
     $endpoint = $endpoint.Trim().ToLower()
     $env:AtlassianPowerKit_ENDPOINT = $endpoint
     
-    if ($env:AtlassianPowerKit_UserName) {
-        $userName = $env:AtlassianPowerKit_UserName
-    } else {
-        $userName = Read-Host -Prompt "Enter the Atlassian user name for profile '$profileName' [$profileName@$endpoint]"
-        if ([string]::IsNullOrWhiteSpace($userName)) {
-            $userName = "$profileName@$endpoint"
-        }
-    }
+    $userName = $env:AtlassianPowerKit_UserName
     $userName = $userName.Trim().ToLower()
     $env:AtlassianPowerKit_UserName = $userName
 
-    try {
-        $apiKey = Get-Content '/run/secrets/api_key'
-    } catch {
-        Write-Debug 'No API key found in /run/secrets/api_key, prompting checking for environment variable'
-        if ($env:AtlassianPowerKit_APIKey) {
-            $apiKey = $env:AtlassianPowerKit_APIKey
-        } else {
-            $apiKey = Read-Host -Prompt "Enter the Atlassian API key for profile '$profileName'"
-        }
+    if (Test-Path -LiteralPath '/run/secrets/api_key') {
+        $apiKey = (Get-Content -LiteralPath '/run/secrets/api_key' -Raw).Trim()
+    } else {
+        Write-Debug 'No API key found in /run/secrets/api_key, checking environment variable'
+        Assert-AtlassianPowerKitEnvVars -Names @('AtlassianPowerKit_APIKey')
+        $apiKey = $env:AtlassianPowerKit_APIKey
     }
     $authString = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${userName}:$apiKey"))
     $env:AtlassianPowerKit_AtlassianAPIAuthString = $authString
@@ -316,7 +361,7 @@ function Initialize-AtlassianPowerKitProfile {
     }
     $env:AtlassianPowerKit_AtlassianAPIHeaders = $HEADERS | ConvertTo-Json -Compress
     try {
-        $cloudId = $(Invoke-RestMethod -Uri "https://$endpoint/_edge/tenant_info").cloudId
+        $cloudId = $(Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/_edge/tenant_info").cloudId
         $env:AtlassianPowerKit_CloudID = $cloudId
         Write-Debug "Cloud ID for profile '$profileName' is: $cloudId"
         Write-Debug "`n✅ Profile connection test succeeded for $env:AtlassianPowerKit_PROFILE_NAME."
@@ -326,7 +371,44 @@ function Initialize-AtlassianPowerKitProfile {
     }
     return $true
 }
+function Clear-AtlassianPowerKitProfile {
+    # Clear all environment variables starting with AtlassianPowerKit_
+    Get-ChildItem env:AtlassianPowerKit_* | ForEach-Object {
+        Write-Debug "Removing environment variable: $_"
+        Remove-Item "env:$($_.Name)" -ErrorAction Continue
+    }
+}
 
+# Function to iterate through profile directories and clear contents by 
+function Clear-AtlassianPowerKitProfileDirs {
+    $PROFILE_DIRS = Get-AtlassianPowerKitProfileList | Get-Item
+    $EXCLUDED_BACKUP_PATTERNS = @('*.zip')
+    $EXCLUDED_DELETE_PATTERNS = @('*.zip', '*.md', '*.dotx', '*pdf', '*.doc', '*.docx', '*templates', '*ARCHIVE')
+    # Get all subdirectories in the AtlassianPowerKit profile directory that dont match $EXCLUDED_FILENAME_PATTERNS
+    foreach ($dir in $PROFILE_DIRS) {
+        $ARCHIVE_NAME = "$($dir.BaseName)_ARCHIVE_$(Get-Date -Format 'yyyyMMdd').zip"
+        $ARCHIVE_PATH = Join-Path -Path $dir.FullName -ChildPath $ARCHIVE_NAME
+
+        # Collecting items excluding the patterns
+        $itemsToArchive = Get-ChildItem -Path $dir.FullName -Recurse -File -Exclude $EXCLUDED_BACKUP_PATTERNS
+        Write-Debug "Items to archive: $($itemsToArchive.FullName) ..."
+
+        if ($itemsToArchive.Count -eq 0) {
+            Write-Debug "Profile directory $dir. FullName has nothing to archive. Skipping..."
+        } else {
+            # Archiving items
+            Compress-Archive -Path $itemsToArchive.FullName -DestinationPath $ARCHIVE_PATH -Force
+            Write-Debug "Archiving $($dir.BaseName) to $ARCHIVE_NAME in $($dir.FullName)...."
+            # Delete any directories with no files or subdirectories
+            Get-ChildItem -Path $dir.FullName -Recurse -Directory | Where-Object { $_.GetFileSystemInfos().Count -eq 0 } | Remove-Item -Force
+            # Write-Debug "Profile directory $dir.FullName cleared and archived to $ARCHIVE_NAME."
+        }
+        Get-ChildItem -Path $dir.FullName -Recurse -File -Exclude $EXCLUDED_DELETE_PATTERNS | Remove-Item -Force
+        Get-ChildItem -Path $dir.FullName -Recurse -Directory -Exclude $EXCLUDED_DELETE_PATTERNS | Remove-Item -Force
+    }
+    # Optionally, clear the directory after archiving
+    Write-Debug 'Profile directories cleared.'
+}
 function AtlassianPowerKit {
     param (
         [Parameter(Mandatory = $false)]
@@ -340,19 +422,29 @@ function AtlassianPowerKit {
         [Parameter(Mandatory = $false)]
         [switch]$DocFunctions = $false,
         [Parameter(Mandatory = $false)]
-        [switch]$ExitOSM = $false
+        [switch]$ExitOSM = $false,
+        [Parameter(Mandatory = $false)]
+        [string]$OSMProfile,
+        [switch]$ClearEnvVars = $false
     )
+
+    if ($ClearEnvVars) {
+        Write-Debug '-ClearEnvVars flagged, clearing all AtlassianPowerKit related environment variables'
+        Clear-AtlassianPowerKitProfile | Write-Debug
+    }
+    Import-AtlassianPowerKitEnvFile | Write-Debug
     if (!$env:AtlassianPowerKit_RequisiteModules) {
         $env:AtlassianPowerKit_RequisiteModules = Get-RequisitePowerKitModules
         Write-Debug 'AtlassianPowerKit_RequisiteModules - Required modules imported'
     }
-    $NESTED_MODULES = Import-NestedModules -NESTED_MODULES @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-Jira', 'AtlassianPowerKit-Confluence', 'AtlassianPowerKit-GRCosm', 'AtlassianPowerKit-JSM', 'AtlassianPowerKit-UsersAndGroups', 'AtlassianPowerKit-Admin', 'AtlassianPowerKit-Auditor')
+    $NESTED_MODULES = Import-NestedModules -NESTED_MODULES @('AtlassianPowerKit-Shared', 'AtlassianPowerKit-Jira', 'AtlassianPowerKit-Confluence', 'AtlassianPowerKit-GRCosm', 'AtlassianPowerKit-JSM', 'AtlassianPowerKit-UsersAndGroups', 'AtlassianPowerKit-Admin', 'AtlassianPowerKit-Auditor') -POWERKIT_INSTALL_DIR $PSScriptRoot
     #Push-Location -Path $PSScriptRoot -ErrorAction Continue
     Write-Debug "Starting AtlassianPowerKit, running from $((Get-Item -Path $PSScriptRoot).FullName)"
     #Write-Debug 'OSM Directories: '
     if ($Reload) {
         Write-Debug '-Reload flagged, clearing the AtlassianPowerKit envars'
         Clear-AtlassianPowerKitProfile | Write-Debug
+        Import-AtlassianPowerKitEnvFile | Write-Debug
     }
     foreach ($OSM_DIR in Confirm-OSMDirs) {
         Get-Item -Path "$OSM_DIR" | Write-Debug
@@ -368,7 +460,7 @@ function AtlassianPowerKit {
         return $true
     }
     Write-Debug 'Loading AtlassianPowerKit profile'
-    $PROFILE_STATUS = Initialize-AtlassianPowerKitProfile
+    $PROFILE_STATUS = Initialize-AtlassianPowerKitProfile -ProfileNameProvided $OSMProfile
     if (-not $PROFILE_STATUS) {
         Write-Error 'Failed to initialize AtlassianPowerKit profile. Exiting.'
         return $false
