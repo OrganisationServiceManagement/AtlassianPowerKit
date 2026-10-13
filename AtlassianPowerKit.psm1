@@ -172,9 +172,20 @@ function Invoke-AtlassianPowerKitFunction {
         $RETURN_JSON = $RETURN_OBJECT
         Write-Debug "Returning JSON of size: $($RETURN_JSON.Length) characters"
     } catch {
+        $errorRecord = $_
+        $stopwatch.Stop()
+        $errorDetails = [ordered]@{
+            error            = 'An error occurred while executing the function.'
+            function         = $FunctionName
+            exceptionType    = $errorRecord.Exception.GetType().FullName
+            details          = $errorRecord.Exception.Message
+            failingCommand   = [string]$errorRecord.InvocationInfo.MyCommand.Name
+            position         = [string]$errorRecord.InvocationInfo.PositionMessage
+            scriptStackTrace = [string]$errorRecord.ScriptStackTrace
+        }
         Write-Debug "Error occurred while invoking function: $FunctionName"
-        Write-Debug $_
-        $RETURN_JSON = "{'error': 'An error occurred while executing the function.', 'details': '$($_.Exception.Message)'}"
+        Write-Debug ($errorDetails | ConvertTo-Json -Depth 10)
+        $RETURN_JSON = $errorDetails | ConvertTo-Json -Depth 10 -Compress
     }
             
     return $RETURN_JSON
