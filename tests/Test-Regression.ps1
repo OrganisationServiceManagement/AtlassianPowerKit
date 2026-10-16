@@ -58,6 +58,84 @@ try {
     # Load only the functions under test so network and filesystem calls can be isolated.
     $tokens = $null
     $parseErrors = $null
+    $jiraAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $repository 'AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psm1'),
+        [ref]$tokens, [ref]$parseErrors
+    )
+    foreach ($definition in $jiraAst.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -in @('Get-JiraIssue', 'Remove-JsonFields', 'Clear-EmptyFields')
+    }, $true)) {
+        . ([scriptblock]::Create($definition.Extent.Text))
+    }
+
+    & {
+        $expectedIssueJson = @'
+{
+    "key": "TEST-1",
+    "fields": {
+        "summary": "Offline issue",
+        "created": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-02T00:00:00Z",
+        "description": { "type": "doc", "version": 1, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Keep avatarUrls in text" }] }] },
+        "attachment": [{ "filename": "image.png", "mimeType": "image/png", "content": "https://example.invalid/attachment/content/1" }],
+        "comment": { "comments": [{ "author": { "displayName": "Example", "active": false, "timeZone": "UTC" }, "body": "Keep this comment" }] },
+        "customfield_10010": { "requestType": { "name": "Emailed request" } },
+        "customfield_12345": { "name": "Unrelated custom field" },
+        "count": 0
+    }
+}
+'@
+        $expectedIssueJson = ConvertFrom-Json -InputObject $expectedIssueJson -AsHashtable -Depth 100 |
+            ConvertTo-Json -Depth 100 -Compress
+        $issueFixture = ConvertFrom-Json -InputObject $expectedIssueJson -AsHashtable -Depth 100
+        $expectedRemovalKeys = @(
+            'avatarUrls', 'avatarId', 'iconUrl', 'iconUrls', 'icon', 'thumbnail',
+            'customfield_10057', 'customfield_10058',
+            'timetracking', 'timespent', 'timeestimate', 'timeoriginalestimate',
+            'aggregatetimespent', 'aggregatetimeestimate', 'aggregatetimeoriginalestimate',
+            'worklog', 'workratio', 'progress', 'aggregateprogress', 'lastViewed'
+        )
+        foreach ($key in $expectedRemovalKeys) {
+            $issueFixture.fields[$key] = @{ marker = 'remove entire property' }
+        }
+        $issueFixture.fields.comment.comments[0].author['avatarUrls'] = @{ '48x48' = 'https://example.invalid/avatar.png' }
+        $issueFixture.fields.attachment[0]['thumbnail'] = 'https://example.invalid/attachment/thumbnail/1'
+        $issueFixture.fields.customfield_10010.requestType['icon'] = @{
+            id = '1'; _links = @{ iconUrls = @{ '48x48' = 'https://example.invalid/icon.png' } }
+        }
+        $issueJson = ConvertTo-Json -InputObject $issueFixture -Depth 100 -Compress
+        $filteredJson = $issueJson | Remove-JsonFields
+        Assert-Condition ($filteredJson -ceq $expectedIssueJson) 'Remove the static image, SLA, time-tracking and last-viewed defaults recursively without changing other data'
+
+        $override = $issueJson | Remove-JsonFields -REMOVE_KEYS_FROM_JSON @('summary') | ConvertFrom-Json -AsHashtable -Depth 100
+        Assert-Condition (-not $override.fields.Contains('summary')) 'Remove explicitly selected fields'
+        foreach ($key in $expectedRemovalKeys) {
+            Assert-Condition ($override.fields.Contains($key)) "An explicit removal list replaces rather than extends the default for $key"
+        }
+        Assert-Condition ($override.fields.comment.comments[0].author.Contains('avatarUrls')) 'An explicit removal list also overrides nested defaults'
+        Assert-Condition (($issueJson | Remove-JsonFields -REMOVE_KEYS_FROM_JSON @()) -ceq $issueJson) 'An empty removal list preserves all fields'
+        Assert-Condition (('{"avatarUrls":{},"AvatarUrls":{},"text":"avatarUrls"}' | Remove-JsonFields) -ceq '{"AvatarUrls":{},"text":"avatarUrls"}') 'Match case-sensitive property names, not text values'
+        Assert-Condition (('[{"iconUrl":"image","key":"TEST-1"}]' | Remove-JsonFields) -ceq '[{"key":"TEST-1"}]') 'Preserve a single-item root array while cleaning its objects'
+        $pipelineResults = @('{"lastViewed":"date","id":1}', '{"timespent":30,"id":2}') | Remove-JsonFields
+        Assert-Condition ($pipelineResults.Count -eq 2 -and $pipelineResults[0] -eq '{"id":1}' -and $pipelineResults[1] -eq '{"id":2}') 'Filter each pipeline input independently'
+        Assert-Throws { '{invalid' | Remove-JsonFields } '*Conversion from JSON failed*'
+
+        function Invoke-RestMethod {
+            param([uri]$Uri, $Headers, $Method, $ContentType)
+            Assert-Condition ($Uri.AbsoluteUri -eq 'https://example.invalid/rest/api/3/issue/TEST-1' -and $Method -eq 'Get') 'Fetch only the requested Jira issue without field-discovery requests'
+            return $issueFixture
+        }
+        $returnedJson = @(Get-JiraIssue -Key 'TEST-1')
+        $savedJson = Get-Content -LiteralPath (Join-Path $testRoot 'offline\JIRA\TEST-1.json') -Raw
+        Assert-Condition ($returnedJson.Count -eq 1 -and $returnedJson[0] -ceq $expectedIssueJson) 'Get-JiraIssue returns only the filtered issue JSON'
+        Assert-Condition ($savedJson.TrimEnd() -ceq $returnedJson[0]) 'Get-JiraIssue saves and returns the same filtered JSON'
+        Assert-Condition ((ConvertTo-Json -InputObject $issueFixture -Depth 100 -Compress) -ceq $issueJson) 'Filtering leaves the original API response unchanged'
+    }
+
+    $tokens = $null
+    $parseErrors = $null
     $confluenceAst = [System.Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $repository 'AtlassianPowerKit-Confluence\AtlassianPowerKit-Confluence.psm1'),
         [ref]$tokens, [ref]$parseErrors

@@ -1531,7 +1531,7 @@ function Test-JiraIssueExists {
     }
 }
 
-# Function to get JSON object for a Jira issue
+# Function to get JSON object for a Jira issue - remove any fields that are null or empty, ensure comments are included and the URl of any attachments, and write the JSON to a file in the osm_home\profile_name\JIRA directory with the filename as the issue key and .json extension
 function Get-JiraIssue {
     param (
         [Parameter(Mandatory = $true)]
@@ -1541,7 +1541,16 @@ function Get-JiraIssue {
         $Key = Read-Host 'Enter the Jira issue key or ID to get the issue JSON'
     }
     $ISSUE = Invoke-RestMethod -Uri "https://$($env:AtlassianPowerKit_ENDPOINT)/rest/api/3/issue/$($Key)" -Headers $(ConvertFrom-Json -AsHashtable $env:AtlassianPowerKit_AtlassianAPIHeaders) -Method Get -ContentType 'application/json'
-    $ISSUE | ConvertTo-Json -Depth 30
+    # Write issue JSON to a file in the osm_home\profile_name\JIRA directory with the filename as the issue key and .json extension
+    $OUTPUT_DIR = "$($env:OSM_HOME)\$($env:AtlassianPowerKit_PROFILE_NAME)\JIRA"
+    if (-not (Test-Path -Path $OUTPUT_DIR)) {
+        New-Item -ItemType Directory -Path $OUTPUT_DIR -Force | Out-Null
+    }
+    $OUTPUT_FILE = "$OUTPUT_DIR\$($Key).json"
+    $ISSUE_JSON = $ISSUE | ConvertTo-Json -Depth 30 | Remove-JsonFields | Clear-EmptyFields
+    $ISSUE_JSON | Out-File -FilePath $OUTPUT_FILE -Force
+    Write-Debug "Issue JSON written to: $OUTPUT_FILE"
+    $ISSUE_JSON
 }
 
 # Function to get the issuelinks field from a Jira issue
@@ -1565,19 +1574,130 @@ function Get-JiraIssueLinks {
 }
 
 function Clear-EmptyFields {
+    [CmdletBinding()]
     param (
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [string]$JSONString
     )
-    $JSON_OBJECT = $JSONString | ConvertFrom-Json -Depth 100
-    $JSON_OBJECT | ForEach-Object {
-        $FIELD = $_
-        if ($null -eq $FIELD) {
-            $FIELD = $null
+
+    begin {
+        function Remove-EmptyJsonProperties {
+            param (
+                [AllowNull()]
+                [object]$Node
+            )
+
+            if ($Node -is [System.Collections.IDictionary]) {
+                # Snapshot the keys so properties can be removed during iteration.
+                foreach ($key in @($Node.get_Keys())) {
+                    $value = $Node[$key]
+
+                    # Clean children first, including objects inside arrays.
+                    Remove-EmptyJsonProperties -Node $value
+
+                    $isEmpty = (
+                        $null -eq $value -or
+                        ($value -is [string] -and $value.Length -eq 0) -or
+                        (
+                            $value -is [System.Collections.ICollection] -and
+                            $value.get_Count() -eq 0
+                        )
+                    )
+
+                    if ($isEmpty) {
+                        [void]$Node.Remove($key)
+                    }
+                }
+            }
+            elseif ($Node -is [System.Collections.IList]) {
+                foreach ($item in $Node) {
+                    Remove-EmptyJsonProperties -Node $item
+                }
+            }
         }
     }
-    return $JSON_OBJECT | ConvertTo-Json -Depth 100 -Compress
+
+    process {
+        $jsonObject = ConvertFrom-Json -InputObject $JSONString `
+            -AsHashtable -NoEnumerate -Depth 100 -ErrorAction Stop
+
+        Remove-EmptyJsonProperties -Node $jsonObject
+
+        ConvertTo-Json -InputObject $jsonObject -Depth 100 -Compress
+    }
 }
+function Remove-JsonFields {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [string]$JSONString,
+
+        [string[]]$REMOVE_KEYS_FROM_JSON = @(
+            'avatarUrls',
+            'avatarId',
+            'iconUrl',
+            'iconUrls',
+            'icon',
+            'thumbnail',
+
+            # Example SLA IDs from TNS-4445; these vary between Jira sites.
+            'customfield_10057', # Time to first response
+            'customfield_10058', # Time to resolution
+
+            'timetracking',
+            'timespent',
+            'timeestimate',
+            'timeoriginalestimate',
+            'aggregatetimespent',
+            'aggregatetimeestimate',
+            'aggregatetimeoriginalestimate',
+            'worklog',
+            'workratio',
+            'progress',
+            'aggregateprogress',
+
+            'lastViewed'
+        )
+    )
+
+    begin {
+        function Remove-MatchingJsonProperties {
+            param (
+                [AllowNull()]
+                [object]$Node,
+
+                [string[]]$Keys
+            )
+
+            if ($Node -is [System.Collections.IDictionary]) {
+                foreach ($key in @($Node.get_Keys())) {
+                    if ($Keys -ccontains $key) {
+                        [void]$Node.Remove($key)
+                    }
+                    else {
+                        Remove-MatchingJsonProperties -Node $Node[$key] -Keys $Keys
+                    }
+                }
+            }
+            elseif ($Node -is [System.Collections.IList]) {
+                foreach ($item in $Node) {
+                    Remove-MatchingJsonProperties -Node $item -Keys $Keys
+                }
+            }
+        }
+    }
+
+    process {
+        $jsonObject = ConvertFrom-Json -InputObject $JSONString `
+            -AsHashtable -NoEnumerate -Depth 100 -ErrorAction Stop
+
+        Remove-MatchingJsonProperties -Node $jsonObject `
+            -Keys $REMOVE_KEYS_FROM_JSON
+
+        ConvertTo-Json -InputObject $jsonObject -Depth 100 -Compress
+    }
+}
+
 function Update-FieldNamesRaw {
     param (
         [Parameter(Mandatory = $true)]

@@ -16,6 +16,21 @@ Import-Module ".\AtlassianPowerKit.psd1"
 AtlassianPowerKit
 ```
 
+## Example comands
+
+```powershell
+# Reload the module to pick up changes in the source code without restarting PowerShell:
+Remove-Module -Name AtlassianPowerKit*; Import-Module ".\AtlassianPowerKit.psd1" -Force; AtlassianPowerKit -FunctionName Get-JiraIssue -FunctionParameters @{"Key"="TNS-4445"}
+```
+
+### Default Jira JSON field removal
+
+`Get-JiraIssue` saves and returns the same filtered JSON. Its internal `Remove-JsonFields` helper uses a literal `[string[]]` default for `$REMOVE_KEYS_FROM_JSON` in `AtlassianPowerKit-Jira\AtlassianPowerKit-Jira.psm1`; no field discovery or extra API calls are needed.
+
+The example list removes avatar/icon metadata and attachment thumbnails (`avatarUrls`, `avatarId`, `iconUrl`, `iconUrls`, `icon`, `thumbnail`), SLA fields `customfield_10057` (Time to first response) and `customfield_10058` (Time to resolution), time-tracking fields (`timetracking`, `timespent`, `timeestimate`, `timeoriginalestimate`, `aggregatetimespent`, `aggregatetimeestimate`, `aggregatetimeoriginalestimate`, `worklog`, `workratio`, `progress`, `aggregateprogress`), and `lastViewed`.
+
+The SLA IDs come from the supplied `TNS-4445` example and are **site-specific**; adjust the static array for other Jira sites. Removal matches exact, case-sensitive property names recursively, including objects inside arrays. Comments, descriptions, attachment records/download URLs, and unrelated dates such as `created` and `updated` are preserved. Calls to the helper can replace its defaults with `-REMOVE_KEYS_FROM_JSON @('avatarUrls', 'lastViewed')`, or pass `@()` to remove no fields.
+
 ## Configuration
 
 AtlassianPowerKit reads configuration from `.env` in the repository root. Copy `env_example` to `.env`, then set the required values:
